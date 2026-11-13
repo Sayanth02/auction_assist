@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS public.settings (
   max_squad           INTEGER     NOT NULL DEFAULT 18,
   default_base_price  NUMERIC(12,2) NOT NULL DEFAULT 1,
   min_base_price      NUMERIC(12,2) NOT NULL DEFAULT 1,
+  bid_granularity     NUMERIC(12,2) NOT NULL DEFAULT 1,
+  allow_base_price_bid BOOLEAN    NOT NULL DEFAULT true,
   -- e.g. [{"upTo":20,"step":1},{"upTo":null,"step":2}]
   increment_rules     JSONB       NOT NULL DEFAULT '[{"upTo":20,"step":1},{"upTo":null,"step":2}]',
   order_mode          TEXT        NOT NULL DEFAULT 'manual'
@@ -74,12 +76,13 @@ INSERT INTO public.auction_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 -- ----------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.bid_log (
   id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  seq_id     BIGINT      GENERATED ALWAYS AS IDENTITY,
   player_id  UUID        NOT NULL REFERENCES public.players(id) ON DELETE CASCADE,
   team_id    UUID        REFERENCES public.teams(id) ON DELETE SET NULL,
   amount     NUMERIC(12,2),
   type       TEXT        NOT NULL
                CHECK (type IN ('bid','sold','unsold','undo')),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 
 -- ================================================================
@@ -155,8 +158,9 @@ CREATE POLICY "Admin can modify bid_log"
 -- ================================================================
 CREATE INDEX IF NOT EXISTS idx_players_status  ON public.players(status);
 CREATE INDEX IF NOT EXISTS idx_players_team_id ON public.players(team_id);
-CREATE INDEX IF NOT EXISTS idx_bid_log_player  ON public.bid_log(player_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_bid_log_team    ON public.bid_log(team_id,   created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bid_log_seq     ON public.bid_log(seq_id DESC);
+CREATE INDEX IF NOT EXISTS idx_bid_log_player  ON public.bid_log(player_id, seq_id DESC);
+CREATE INDEX IF NOT EXISTS idx_bid_log_team    ON public.bid_log(team_id,   seq_id DESC);
 
 -- ================================================================
 -- REALTIME
@@ -168,3 +172,5 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.auction_state;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.players;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.teams;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.settings;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.bid_log;
+

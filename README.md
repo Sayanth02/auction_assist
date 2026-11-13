@@ -58,9 +58,9 @@ supabase/
 
 ## Build order (see PLAN.md § 7)
 
-- [x] Step 1 — Scaffold, Supabase connection, tables, RLS  ← **you are here**
-- [ ] Step 2 — Admin login, Settings / Teams / Players screens
-- [ ] Step 3 — Auction RPC functions with rule checks
-- [ ] Step 4 — Auction console
-- [ ] Step 5 — Display screen and teams board (Realtime)
+- [x] Step 1 — Scaffold, Supabase connection, tables, RLS
+- [x] Step 2 — Admin login, Settings / Teams / Players screens
+- [x] Step 3 — Auction RPC functions with rule checks
+- [x] Step 4 — Auction console
+- [x] Step 5 — Display screen and teams board (Realtime)
 - [ ] Step 6 — CSV export, reset, polish

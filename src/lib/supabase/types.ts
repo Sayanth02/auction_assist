@@ -27,6 +27,8 @@ export interface Settings {
   max_squad: number;
   default_base_price: number;
   min_base_price: number;
+  bid_granularity: number;
+  allow_base_price_bid: boolean;
   increment_rules: IncrementRule[];
   order_mode: OrderMode;
   updated_at: string;
@@ -64,6 +66,7 @@ export interface AuctionState {
 
 export interface BidLog {
   id: string;
+  seq_id?: number;
   player_id: string;
   team_id: string | null;
   amount: number | null;
@@ -77,4 +80,9 @@ export interface TeamWithStats extends Team {
   purse_remaining: number;
   /** number of players currently sold to this team */
   squad_size: number;
+}
+
+export interface AuctionTeam extends TeamWithStats {
+  max_bid: number;
+  can_bid: boolean;
 }
