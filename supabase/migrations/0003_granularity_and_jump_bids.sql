@@ -149,8 +149,12 @@ BEGIN
     RAISE EXCEPTION 'Not authenticated';
   END IF;
 
-  -- Safely disable safeupdate if active
-  PERFORM set_config('safeupdate.enabled', 'off', true);
+  -- Safely disable safeupdate if active, ignoring permission errors
+  BEGIN
+    PERFORM set_config('safeupdate.enabled', 'off', true);
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
 
   -- Get the last non-undo log entry
   SELECT * INTO v_last

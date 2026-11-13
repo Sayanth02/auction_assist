@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useTransition, useRef } from 'react';
-import { upsertPlayer, deletePlayer, importPlayersCsv } from '@/app/actions/players';
-import type { Player, Settings } from '@/lib/supabase/types';
+import React, { useState, useTransition, useRef, useMemo } from 'react';
+import { upsertPlayer, deletePlayer, importPlayersCsv, unsellPlayer } from '@/app/actions/players';
+import type { Player, Settings, Team } from '@/lib/supabase/types';
 import {
   POSITION_OPTIONS,
   CATEGORY_OPTIONS,
@@ -15,6 +15,7 @@ import { resizeImageToWebP } from '@/lib/image-util';
 interface Props {
   players: Player[];
   settings: Settings | null;
+  teams?: Team[];
 }
 
 interface ModalConfig {
@@ -30,7 +31,8 @@ function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-export default function PlayersList({ players, settings }: Props) {
+export default function PlayersList({ players, settings, teams = [] }: Props) {
+  const teamMap = useMemo(() => Object.fromEntries(teams.map((t) => [t.id, t.name])), [teams]);
   const [editing, setEditing] = useState<Player | 'new' | null>(null);
   const [search, setSearch] = useState('');
   const [showCsvModal, setShowCsvModal] = useState(false);
@@ -77,6 +79,34 @@ export default function PlayersList({ players, settings }: Props) {
           triggerToast(err, true);
         } else {
           triggerToast(`${player.name} removed from roster.`);
+        }
+        setModal(null);
+      },
+    });
+  }
+
+  function handleConfirmUnsell(player: Player) {
+    const isSold = player.status === 'sold';
+    const teamName = player.team_id ? teamMap[player.team_id] || 'their club' : null;
+
+    setModal({
+      title: isSold ? 'Undo player sale?' : 'Make player available?',
+      description: isSold
+        ? `Are you sure you want to undo the sale of "${player.name}"? This will remove them from ${teamName || 'their team'}, refund the team's purse by ₹${(player.sold_price || 0).toLocaleString('en-IN')}, and return them to the available auction pool.`
+        : `Return "${player.name}" to the available pool for bidding?`,
+      confirmText: isSold ? 'Undo sale' : 'Make available',
+      cancelText: 'Cancel',
+      isDanger: false,
+      onConfirm: async () => {
+        const err = await unsellPlayer(player.id);
+        if (err) {
+          triggerToast(err, true);
+        } else {
+          triggerToast(
+            isSold
+              ? `Sale for "${player.name}" has been undone.`
+              : `"${player.name}" is now available for auction.`
+          );
         }
         setModal(null);
       },
@@ -207,8 +237,10 @@ export default function PlayersList({ players, settings }: Props) {
               key={player.id}
               player={player}
               index={index}
+              teamName={player.team_id ? teamMap[player.team_id] : null}
               onEdit={() => handleOpenEdit(player)}
               onDelete={() => handleConfirmDelete(player)}
+              onUnsell={() => handleConfirmUnsell(player)}
             />
           ))}
         </section>
@@ -313,13 +345,17 @@ export default function PlayersList({ players, settings }: Props) {
 function PlayerCard({
   player,
   index,
+  teamName,
   onEdit,
   onDelete,
+  onUnsell,
 }: {
   player: Player;
   index: number;
+  teamName?: string | null;
   onEdit: () => void;
   onDelete: () => void;
+  onUnsell: () => void;
 }) {
   const posCode = player.position || 'NS';
   const posLabel = getPositionLabel(player.position);
@@ -385,10 +421,43 @@ function PlayerCard({
           <small>Base price</small>
           <strong>₹{Number(player.base_price).toLocaleString('en-IN')}</strong>
         </div>
+
+        {player.status === 'sold' && (
+          <div className="mt-2 py-1 px-2.5 bg-amber-50 border border-amber-300 text-amber-950 font-bold text-xs flex items-center justify-between">
+            <span>Sold to {teamName || 'Team'}</span>
+            <span className="font-mono text-emerald-800 font-extrabold">
+              ₹{Number(player.sold_price || 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Action buttons */}
       <div className="player-actions">
+        {player.status === 'sold' && (
+          <button
+            type="button"
+            onClick={onUnsell}
+            className="player-unsell"
+            aria-label={`Undo sale for ${player.name}`}
+            title={`Undo sale for ${player.name} and return to available pool`}
+          >
+            <IconUndo />
+            <span>UNDO SALE</span>
+          </button>
+        )}
+        {player.status === 'unsold' && (
+          <button
+            type="button"
+            onClick={onUnsell}
+            className="player-unsell"
+            aria-label={`Make ${player.name} available`}
+            title={`Return ${player.name} to available pool`}
+          >
+            <IconUndo />
+            <span>AVAILABLE</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={onEdit}
@@ -577,6 +646,61 @@ function PlayerFormPanel({
         <div className="players-form-layout">
           {/* Left inputs grid */}
           <div className="players-form-fields">
+            {player?.status === 'sold' && (
+              <div className="p-3 bg-amber-50 border-2 border-amber-300 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="font-black text-amber-950 uppercase tracking-wider block">
+                    CURRENT STATUS: SOLD
+                  </span>
+                  <span className="text-amber-800">
+                    Sold for ₹{Number(player.sold_price || 0).toLocaleString('en-IN')}.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={async () => {
+                    const err = await unsellPlayer(player.id);
+                    if (err) {
+                      setErrors((prev) => ({ ...prev, form: err }));
+                    } else {
+                      onSuccess(`Sale for "${player.name}" undone. Player is now available.`);
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-black text-xs uppercase tracking-wider transition-colors shrink-0 shadow"
+                >
+                  Undo Sale &amp; Return to Pool
+                </button>
+              </div>
+            )}
+            {player?.status === 'unsold' && (
+              <div className="p-3 bg-slate-100 border-2 border-slate-300 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="font-black text-slate-800 uppercase tracking-wider block">
+                    CURRENT STATUS: UNSOLD
+                  </span>
+                  <span className="text-slate-600">
+                    Marked unsold during auction.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={async () => {
+                    const err = await unsellPlayer(player.id);
+                    if (err) {
+                      setErrors((prev) => ({ ...prev, form: err }));
+                    } else {
+                      onSuccess(`"${player.name}" is now available for auction.`);
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wider transition-colors shrink-0 shadow"
+                >
+                  Make Available
+                </button>
+              </div>
+            )}
+
             {/* Player Name */}
             <div className={`manage-field ${errors.name ? 'invalid' : ''}`} id="playersNameField">
               <label className="manage-field-label" htmlFor="playersName">
@@ -977,6 +1101,14 @@ function IconUpload() {
   return (
     <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M12 15V4m-4 4 4-4 4 4M4 16v4h16v-4" />
+    </svg>
+  );
+}
+
+function IconUndo() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 10h10a5 5 0 0 1 5 5v2M3 10l5-5M3 10l5 5" />
     </svg>
   );
 }

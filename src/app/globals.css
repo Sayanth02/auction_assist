@@ -4168,6 +4168,17 @@ textarea::placeholder {
   background: #edf2ff;
 }
 
+.player-unsell {
+  flex: 1.1;
+  color: #b45309;
+  background: #fffbeb;
+  border-right: 1px solid #d4ddf0 !important;
+}
+
+.player-unsell:hover {
+  background: #fef3c7;
+}
+
 .player-delete {
   width: 39%;
   color: #bb3447;

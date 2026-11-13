@@ -9,6 +9,7 @@ import {
   undoLast,
   resetAuction,
 } from '@/app/actions/auction';
+import { unsellPlayer } from '@/app/actions/players';
 import type {
   AuctionState,
   AuctionTeam,
@@ -103,6 +104,30 @@ export default function AuctionConsole({
   const isBidding = auctionState.status === 'bidding';
   const hasLeader = !!auctionState.leading_team_id;
 
+  // Find the most recent non-undo action in the activity log
+  const lastNonUndo = useMemo(
+    () => recentLog.find((l) => l.type !== 'undo') ?? null,
+    [recentLog]
+  );
+
+  const canUndo = !isPending && recentLog.length > 0 && (
+    isBidding ||
+    (!isBidding && (lastNonUndo?.type === 'sold' || lastNonUndo?.type === 'unsold'))
+  );
+
+  const undoLabel = useMemo(() => {
+    if (!isBidding && lastNonUndo) {
+      const pName = playerMap[lastNonUndo.player_id];
+      if (lastNonUndo.type === 'sold') {
+        return pName ? `Undo sale (${pName})` : 'Undo last sale';
+      }
+      if (lastNonUndo.type === 'unsold') {
+        return pName ? `Undo unsold (${pName})` : 'Undo last unsold';
+      }
+    }
+    return hasLeader ? 'Undo last bid' : 'Undo last action';
+  }, [isBidding, lastNonUndo, playerMap, hasLeader]);
+
   const leaderTeam = useMemo(() => {
     if (!auctionState.leading_team_id) return null;
     return auctionTeams.find((t) => t.id === auctionState.leading_team_id) ?? null;
@@ -177,9 +202,29 @@ export default function AuctionConsole({
   }
 
   function handleUndo() {
+    const actionType = lastNonUndo?.type;
+    const pName = lastNonUndo ? playerMap[lastNonUndo.player_id] : null;
+    const msg = actionType === 'sold'
+      ? `Sale for ${pName || 'player'} undone. Player returned to bidding.`
+      : actionType === 'unsold'
+      ? `Unsold status for ${pName || 'player'} undone. Player returned to bidding.`
+      : 'Last auction action undone.';
+
     run(
       () => undoLast(),
-      'Last auction action undone.'
+      msg
+    );
+  }
+
+  function handleUnsellSpecificPlayer(playerId: string, playerName: string) {
+    const confirmed = window.confirm(
+      `Are you sure you want to un-sell "${playerName}"?\n\nThis will remove them from their team, refund the team's purse, and make the player available for auction again.`
+    );
+    if (!confirmed) return;
+
+    run(
+      () => unsellPlayer(playerId),
+      `Sale for "${playerName}" undone. Player is now available.`
     );
   }
 
@@ -715,13 +760,14 @@ export default function AuctionConsole({
               <button
                 type="button"
                 className="text-action"
-                disabled={!isBidding || recentLog.length === 0 || isPending}
+                disabled={!canUndo}
                 onClick={handleUndo}
+                title={canUndo ? undoLabel : 'Nothing to undo'}
               >
                 <svg className="icon" aria-hidden="true">
                   <use href="#i-undo" />
                 </svg>
-                Undo last bid
+                {undoLabel}
               </button>
 
               <button
@@ -761,12 +807,13 @@ export default function AuctionConsole({
                 <th>Team</th>
                 <th style={{ textAlign: 'right' }}>Amount</th>
                 <th style={{ width: '110px', textAlign: 'right' }}>Time</th>
+                <th style={{ width: '100px', textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {recentLog.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-slate-400 font-semibold">
+                  <td colSpan={6} className="py-8 text-center text-slate-400 font-semibold">
                     No auction activity recorded yet for this session.
                   </td>
                 </tr>
@@ -776,6 +823,7 @@ export default function AuctionConsole({
                   const teamName = log.team_id ? teamMap[log.team_id] || log.team_id : '—';
                   const amountStr = log.amount !== null && log.amount !== undefined ? `₹${log.amount.toLocaleString('en-IN')}` : '—';
                   const timeStr = formatTime(log.created_at);
+                  const isLatestAction = log.id === lastNonUndo?.id;
 
                   return (
                     <tr key={log.id}>
@@ -794,6 +842,30 @@ export default function AuctionConsole({
                       </td>
                       <td style={{ textAlign: 'right' }} className="text-slate-400 font-medium text-xs">
                         {timeStr}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        {isLatestAction && log.type !== 'undo' && (
+                          <button
+                            type="button"
+                            onClick={handleUndo}
+                            disabled={isPending}
+                            className="px-2.5 py-1 text-[11px] font-black uppercase tracking-wider text-amber-950 bg-amber-400 hover:bg-amber-300 border border-amber-600 rounded transition-colors shadow-sm"
+                            title="Undo this action"
+                          >
+                            Undo
+                          </button>
+                        )}
+                        {!isLatestAction && log.type === 'sold' && (
+                          <button
+                            type="button"
+                            onClick={() => handleUnsellSpecificPlayer(log.player_id, playerName)}
+                            disabled={isPending}
+                            className="px-2.5 py-1 text-[11px] font-black uppercase tracking-wider text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded transition-colors"
+                            title={`Un-sell ${playerName} and return to available pool`}
+                          >
+                            Un-sell
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

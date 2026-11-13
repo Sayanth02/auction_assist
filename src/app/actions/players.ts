@@ -292,3 +292,76 @@ export async function importPlayersCsv(
   revalidatePath('/teams');
   return { successCount: validPayloads.length, errors: [] };
 }
+
+export async function unsellPlayer(playerId: string): Promise<string | null> {
+  try {
+    const supabase = await requireAdmin();
+
+    // 1. Fetch current player details
+    const { data: player, error: fetchErr } = await supabase
+      .from('players')
+      .select('id, name, status, team_id, sold_price')
+      .eq('id', playerId)
+      .single();
+
+    if (fetchErr || !player) {
+      return 'Player not found.';
+    }
+
+    if (player.status !== 'sold' && player.status !== 'unsold') {
+      return 'Player is already available.';
+    }
+
+    const oldTeamId = player.team_id;
+    const oldSoldPrice = player.sold_price;
+
+    // 2. Un-sell the player
+    const { error: updateErr } = await supabase
+      .from('players')
+      .update({
+        status: 'available',
+        team_id: null,
+        sold_price: null,
+      })
+      .eq('id', playerId);
+
+    if (updateErr) return updateErr.message;
+
+    // 3. Log the undo event in bid_log for audit and realtime sync
+    await supabase.from('bid_log').insert({
+      player_id: playerId,
+      team_id: oldTeamId,
+      amount: oldSoldPrice,
+      type: 'undo',
+    });
+
+    // 4. If this player is currently in auction_state, reset auction_state to idle
+    const { data: state } = await supabase
+      .from('auction_state')
+      .select('current_player_id, status')
+      .eq('id', 1)
+      .single();
+
+    if (state && state.current_player_id === playerId) {
+      await supabase
+        .from('auction_state')
+        .update({
+          current_player_id: null,
+          current_bid: null,
+          leading_team_id: null,
+          status: 'idle',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', 1);
+    }
+
+    revalidatePath('/admin/players');
+    revalidatePath('/admin/auction');
+    revalidatePath('/admin/teams');
+    revalidatePath('/teams');
+    revalidatePath('/display');
+    return null;
+  } catch (err: unknown) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
