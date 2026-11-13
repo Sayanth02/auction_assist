@@ -67,6 +67,7 @@ export default async function DisplayPage() {
       initialCurrentPlayer={currentPlayer}
       initialLeadingTeam={leadingTeam}
       initialTeams={teams}
+      initialPlayers={allPlayers}
       initialRecentSold={recentSold}
     />
   );
