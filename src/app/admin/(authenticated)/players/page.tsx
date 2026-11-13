@@ -13,10 +13,5 @@ export default async function PlayersPage() {
   const players  = (playersRes.data ?? []) as Player[];
   const settings = settingsRes.data as Settings | null;
 
-  return (
-    <div>
-      <h1 className="text-xl font-bold mb-4">Players</h1>
-      <PlayersList players={players} settings={settings} />
-    </div>
-  );
+  return <PlayersList players={players} settings={settings} />;
 }

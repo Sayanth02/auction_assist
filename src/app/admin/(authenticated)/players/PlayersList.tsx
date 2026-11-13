@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useActionState, useTransition, useRef } from 'react';
+import React, { useState, useTransition, useRef } from 'react';
 import { upsertPlayer, deletePlayer, importPlayersCsv } from '@/app/actions/players';
 import type { Player, Settings } from '@/lib/supabase/types';
 import {
@@ -12,243 +12,472 @@ import {
 } from '@/lib/player-constants';
 import { resizeImageToWebP } from '@/lib/image-util';
 
-const STATUS_BADGE: Record<Player['status'], string> = {
-  available: 'bg-blue-100 text-blue-700',
-  sold:      'bg-green-100 text-green-700',
-  unsold:    'bg-gray-100 text-gray-500',
-};
-
 interface Props {
   players: Player[];
   settings: Settings | null;
 }
 
+interface ModalConfig {
+  title: string;
+  description: string;
+  confirmText?: string;
+  cancelText?: string;
+  isDanger?: boolean;
+  onConfirm: () => void;
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
 export default function PlayersList({ players, settings }: Props) {
   const [editing, setEditing] = useState<Player | 'new' | null>(null);
-  const [showCsvModal, setShowCsvModal] = useState(false);
   const [search, setSearch] = useState('');
+  const [showCsvModal, setShowCsvModal] = useState(false);
+  const [modal, setModal] = useState<ModalConfig | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ text: string; isError?: boolean } | null>(null);
+  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
 
-  const filtered = players.filter(
-    (p) =>
-      p.name.toLowerCase().includes(search.toLowerCase()) ||
-      (p.category ?? '').toLowerCase().includes(search.toLowerCase()) ||
-      (p.position ?? '').toLowerCase().includes(search.toLowerCase()) ||
-      getPositionLabel(p.position).toLowerCase().includes(search.toLowerCase()),
-  );
+  function triggerToast(text: string, isError = false) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastMessage({ text, isError });
+    toastTimerRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 3800);
+  }
+
+  function handleOpenAdd() {
+    setEditing('new');
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  }
+
+  function handleOpenEdit(player: Player) {
+    setEditing(player);
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  }
+
+  function handleConfirmDelete(player: Player) {
+    setModal({
+      title: 'Remove this player?',
+      description: `Remove "${player.name}" from the tournament? This deletes their record and stored photo.`,
+      confirmText: 'Remove player',
+      cancelText: 'Cancel',
+      isDanger: true,
+      onConfirm: async () => {
+        if (editing && typeof editing === 'object' && editing.id === player.id) {
+          setEditing(null);
+        }
+        const err = await deletePlayer(player.id);
+        if (err) {
+          triggerToast(err, true);
+        } else {
+          triggerToast(`${player.name} removed from roster.`);
+        }
+        setModal(null);
+      },
+    });
+  }
+
+  const tournamentName = settings?.tournament_name || 'VSL SEASON 04';
+  const query = search.trim().toLowerCase();
+
+  const filtered = players.filter((p) => {
+    const nameMatch = p.name.toLowerCase().includes(query);
+    const catMatch = (p.category ?? '').toLowerCase().includes(query);
+    const posCodeMatch = (p.position ?? '').toLowerCase().includes(query);
+    const posLabelMatch = getPositionLabel(p.position).toLowerCase().includes(query);
+    return nameMatch || catMatch || posCodeMatch || posLabelMatch;
+  });
 
   return (
-    <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        {editing !== 'new' && (
-          <div className="flex items-center gap-2">
+    <div className="relative">
+      {/* ── Page Header ── */}
+      <div className="players-page-header">
+        <div>
+          <div className="eyebrow">
+            {tournamentName.toUpperCase()} <span style={{ opacity: 0.55 }}>/</span> PLAYER MANAGEMENT
+          </div>
+          <h1 className="page-heading">
+            The players<span className="text-[var(--yellow)]">.</span>
+          </h1>
+          <p className="page-subtitle">Build your roster. Get ready for the auction.</p>
+        </div>
+
+        {editing === null && (
+          <div className="players-header-actions" id="playersHeaderActions">
             <button
-              onClick={() => setEditing('new')}
-              className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap shadow-xs"
+              type="button"
+              onClick={handleOpenAdd}
+              className="manage-add-primary"
+              aria-label="Add new player"
             >
-              + Add player
+              <IconPlus />
+              <span>Add player</span>
+              <IconArrow />
             </button>
             <button
+              type="button"
               onClick={() => setShowCsvModal(true)}
-              className="border border-gray-300 hover:bg-gray-50 text-gray-700 font-semibold px-3 py-2 rounded-md text-sm transition-colors whitespace-nowrap"
+              className="players-import"
+              aria-label="Import players via CSV"
             >
-              📥 Import CSV
+              <IconUpload />
+              <span>Import CSV</span>
             </button>
           </div>
         )}
-        <input
-          type="search"
-          placeholder="Search by name, position or category…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="bg-white text-gray-900 border border-gray-300 rounded-md px-3 py-2 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-green-500"
-        />
       </div>
 
-      {/* CSV Import Modal */}
+      {/* ── Toolbar ── */}
+      <div className="manage-toolbar">
+        <div className="manage-search">
+          <IconSearch />
+          <input
+            id="playersSearch"
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, position or category..."
+            autoComplete="off"
+            aria-label="Search players by name, position or category"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className="manage-search-clear"
+              aria-label="Clear player search"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="manage-total">
+          <strong id="playersTotal">{pad(players.length)}</strong>
+          <span>
+            PLAYERS
+            <br />
+            REGISTERED
+          </span>
+        </div>
+      </div>
+
+      {/* ── Collapsible Add/Edit Form Panel ── */}
+      {editing !== null && (
+        <div ref={formRef} className="players-form-card" id="playersFormPanel">
+          <PlayerFormPanel
+            player={editing === 'new' ? undefined : editing}
+            settings={settings}
+            onClose={() => setEditing(null)}
+            onSuccess={(msg) => {
+              setEditing(null);
+              triggerToast(msg);
+            }}
+          />
+        </div>
+      )}
+
+      {/* ── Section Subheader ── */}
+      <div className="manage-section-head">
+        <div>
+          <div className="manage-kicker">THE AUCTION ROSTER / PLAYER DIRECTORY</div>
+          <h2 className="manage-section-title">
+            All players{' '}
+            <span className="manage-count-chip" id="playersCountChip">
+              {pad(players.length)} {players.length === 1 ? 'PLAYER' : 'PLAYERS'}
+            </span>
+          </h2>
+          <p className="manage-result-count" role="status" aria-live="polite">
+            {filtered.length} of {players.length} {players.length === 1 ? 'player' : 'players'}
+          </p>
+        </div>
+        <div className="manage-section-label">EDIT DETAILS / MANAGE PHOTOS</div>
+      </div>
+
+      {/* ── Player Roster Grid ── */}
+      {filtered.length > 0 ? (
+        <section className="players-roster" id="playersGrid" aria-label="Player directory">
+          {filtered.map((player, index) => (
+            <PlayerCard
+              key={player.id}
+              player={player}
+              index={index}
+              onEdit={() => handleOpenEdit(player)}
+              onDelete={() => handleConfirmDelete(player)}
+            />
+          ))}
+        </section>
+      ) : (
+        /* Empty State */
+        <div className="manage-empty" id="playersEmpty">
+          <h3 id="playersEmptyTitle">
+            {query ? 'No players found.' : 'No players yet.'}
+          </h3>
+          <p id="playersEmptyText">
+            {query
+              ? 'Try searching for another name, position or category.'
+              : 'Start by adding your first player to the auction roster.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              if (query) setSearch('');
+              else handleOpenAdd();
+            }}
+            id="playersEmptyAction"
+          >
+            {query ? 'Clear search' : '+ Add player'}
+          </button>
+        </div>
+      )}
+
+      {/* ── Footer Branding Note ── */}
+      <footer className="footer mt-6">
+        <div>
+          <strong>VSL</strong> SEASON 04 / PLAYER MANAGEMENT
+        </div>
+        <div className="footer-note">ROSTER READY · PUBLIC STORAGE BRANDING</div>
+      </footer>
+
+      {/* ── CSV Import Modal ── */}
       {showCsvModal && (
         <CsvImportModal
           settings={settings}
           onClose={() => setShowCsvModal(false)}
+          onSuccess={(count) => {
+            setShowCsvModal(false);
+            triggerToast(`Successfully imported ${count} players!`);
+          }}
         />
       )}
 
-      {/* Add form */}
-      {editing === 'new' && (
-        <PlayerForm
-          settings={settings}
-          onDone={() => setEditing(null)}
-        />
+      {/* ── Confirmation Modal ── */}
+      {modal && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+          <div className="modal">
+            <div className="modal-top">
+              <span className="modal-eyebrow">CONFIRM ACTION</span>
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="modal-close"
+                aria-label="Close dialog"
+              >
+                <IconClose />
+              </button>
+            </div>
+            <h2 id="modalTitle">{modal.title}</h2>
+            <p className="modal-desc">{modal.description}</p>
+            <div className="modal-actions">
+              <button
+                type="button"
+                onClick={() => setModal(null)}
+                className="modal-btn cancel"
+              >
+                {modal.cancelText || 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={modal.onConfirm}
+                className={`modal-btn confirm ${modal.isDanger ? 'bg-[#b63e46] text-white hover:bg-[#8f272e]' : ''}`}
+              >
+                {modal.confirmText || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {/* Count */}
-      <p className="text-xs text-gray-500">
-        {filtered.length} of {players.length} player{players.length !== 1 ? 's' : ''}
-      </p>
-
-      {/* Empty State */}
-      {filtered.length === 0 && editing !== 'new' && (
-        <p className="text-gray-500 text-sm py-4 text-center bg-white rounded-lg border">
-          No players found. Click &quot;+ Add player&quot; or &quot;Import CSV&quot; above.
-        </p>
+      {/* ── Floating Toast Notification ── */}
+      {toastMessage && (
+        <div
+          className={`toast show ${toastMessage.isError ? 'error' : ''}`}
+          role="status"
+          aria-live="polite"
+        >
+          {toastMessage.text}
+        </div>
       )}
-
-      {/* List */}
-      <div className="space-y-2">
-        {filtered.map((player) =>
-          editing && (editing as Player).id === player.id ? (
-            <PlayerForm
-              key={player.id}
-              player={player}
-              settings={settings}
-              onDone={() => setEditing(null)}
-            />
-          ) : (
-            <PlayerRow
-              key={player.id}
-              player={player}
-              onEdit={() => setEditing(player)}
-            />
-          ),
-        )}
-      </div>
     </div>
   );
 }
 
-/* ── Player Row Component ── */
-function PlayerRow({ player, onEdit }: { player: Player; onEdit: () => void }) {
-  const [isPending, startTransition] = useTransition();
-  const [err, setErr] = useState<string | null>(null);
-
-  function handleDelete() {
-    if (!confirm(`Delete player "${player.name}"? This removes their record and photo.`)) return;
-    startTransition(async () => {
-      const e = await deletePlayer(player.id);
-      if (e) setErr(e);
-    });
-  }
+/* ══════════════════════════════════════════════════════════════════ */
+/* ── PLAYER CARD COMPONENT                                        ── */
+/* ══════════════════════════════════════════════════════════════════ */
+function PlayerCard({
+  player,
+  index,
+  onEdit,
+  onDelete,
+}: {
+  player: Player;
+  index: number;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const posCode = player.position || 'NS';
+  const posLabel = getPositionLabel(player.position);
+  const statusUpper = (player.status || 'available').toUpperCase();
 
   return (
-    <div className="bg-white shadow rounded-lg px-4 py-3 flex items-center justify-between gap-4 border border-gray-100">
-      <div className="flex items-center gap-3.5 min-w-0">
-        {/* Photo avatar or Fallback Initials */}
-        {player.photo_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={player.photo_url}
-            alt={player.name}
-            className="w-12 h-12 rounded-full object-cover border border-gray-200 shrink-0 bg-gray-50"
-          />
-        ) : (
-          <div
-            className="w-12 h-12 rounded-full bg-slate-100 border border-slate-200 text-slate-700 font-bold text-sm flex items-center justify-center shrink-0 tracking-wider shadow-2xs"
-            title="No photo uploaded"
-          >
-            {getInitials(player.name)}
-          </div>
-        )}
-
-        {/* Details */}
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-bold text-gray-900 truncate">{player.name}</p>
-            <span
-              className={`text-[11px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider ${STATUS_BADGE[player.status]}`}
-            >
-              {player.status}
+    <article className="player-card" data-player-id={player.id}>
+      {/* Left visual strip */}
+      <div className="player-visual">
+        <span className="player-position-tag">{posCode}</span>
+        <div className="player-portrait" aria-label={`${player.name} photo`}>
+          {player.photo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={player.photo_url} alt={player.name} />
+          ) : (
+            <span className="player-portrait-fallback" aria-hidden="true">
+              {getInitials(player.name)}
             </span>
+          )}
+        </div>
+        <span className="player-photo-note">
+          {player.photo_url ? 'PHOTO ATTACHED' : 'NO PHOTO'}
+        </span>
+      </div>
+
+      {/* Right body copy */}
+      <div className="player-copy">
+        <div className="player-copy-top">
+          <span className="player-index">PLAYER {pad(index + 1)}</span>
+          <span
+            className={`player-status ${
+              player.status === 'sold'
+                ? 'sold'
+                : player.status === 'unsold'
+                ? 'unsold'
+                : ''
+            }`}
+          >
+            {statusUpper}
+          </span>
+        </div>
+
+        <h3 className="player-card-name" title={player.name}>
+          {player.name}
+        </h3>
+
+        <div className="player-details-grid">
+          <div className="player-detail">
+            <small>Position</small>
+            <strong className="player-position-value" title={posLabel}>
+              {posLabel}
+            </strong>
           </div>
+          <div className="player-detail">
+            <small>Category</small>
+            <strong className="player-category-value">
+              {player.category || 'Not specified'}
+            </strong>
+          </div>
+        </div>
 
-          <p className="text-xs text-gray-500 mt-0.5">
-            <span className="font-semibold text-gray-700">{getPositionLabel(player.position)}</span>
-            {' · '}
-            <span className="text-slate-600">{player.category || 'No Category'}</span>
-            {' · '}
-            <span className="font-mono font-bold text-emerald-700">Base ₹{player.base_price}</span>
-          </p>
-
-          {err && <p className="text-red-600 text-xs mt-0.5">{err}</p>}
+        <div className="player-base-price">
+          <small>Base price</small>
+          <strong>₹{Number(player.base_price).toLocaleString('en-IN')}</strong>
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex gap-2 shrink-0">
+      {/* Action buttons */}
+      <div className="player-actions">
         <button
+          type="button"
           onClick={onEdit}
-          className="text-xs px-3 py-1.5 border border-gray-300 rounded hover:bg-gray-50 font-semibold text-gray-700 transition-colors"
+          className="player-edit"
+          aria-label={`Edit ${player.name}`}
         >
-          Edit
+          <IconEdit />
+          <span>EDIT PLAYER</span>
         </button>
         <button
-          onClick={handleDelete}
-          disabled={isPending}
-          className="text-xs px-3 py-1.5 border border-red-300 text-red-600 rounded hover:bg-red-50 disabled:opacity-50 font-semibold transition-colors"
+          type="button"
+          onClick={onDelete}
+          className="player-delete"
+          aria-label={`Delete ${player.name}`}
         >
-          {isPending ? '…' : 'Delete'}
+          <IconTrash />
+          <span>DELETE</span>
         </button>
       </div>
-    </div>
+    </article>
   );
 }
 
-/* ── Player Form (Create + Edit) ── */
-function PlayerForm({
+/* ══════════════════════════════════════════════════════════════════ */
+/* ── PLAYER FORM PANEL (Add / Edit)                               ── */
+/* ══════════════════════════════════════════════════════════════════ */
+function PlayerFormPanel({
   player,
   settings,
-  onDone,
+  onClose,
+  onSuccess,
 }: {
   player?: Player;
   settings: Settings | null;
-  onDone: () => void;
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
 }) {
+  const isNew = !player;
+  const granularity = settings?.bid_granularity ?? 1;
+  const defaultBasePrice = player?.base_price ?? (settings?.default_base_price ?? 100);
+
+  const [name, setName] = useState(player?.name ?? '');
+  const [basePrice, setBasePrice] = useState<string>(String(defaultBasePrice));
+  const [position, setPosition] = useState<string>(player?.position ?? DEFAULT_POSITION);
+  const [category, setCategory] = useState<string>(player?.category ?? '');
+
+  // Photo management state
   const [previewUrl, setPreviewUrl] = useState<string | null>(player?.photo_url ?? null);
   const [photoBlob, setPhotoBlob] = useState<Blob | null>(null);
   const [photoFileName, setPhotoFileName] = useState<string>('');
-  const [isPhotoRemoved, setIsPhotoRemoved] = useState<boolean>(false);
-  const [isProcessingImage, setIsProcessingImage] = useState<boolean>(false);
-  const [clientError, setClientError] = useState<string | null>(null);
+  const [isPhotoRemoved, setIsPhotoRemoved] = useState(false);
+  const [photoFeedback, setPhotoFeedback] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
+
+  // Field validation error states
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSaving, startSavingTransition] = useTransition();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Default base price: prefill from settings.default_base_price (100)
-  const defaultBasePrice = player?.base_price ?? (settings?.default_base_price ?? 100);
-  const granularity = settings?.bid_granularity ?? 1;
-
-  const [error, action, pending] = useActionState(
-    async (prev: string | null, formData: FormData) => {
-      // If a resized WebP blob was prepared, attach it to formData
-      if (photoBlob) {
-        formData.set('photo_file', photoBlob, photoFileName);
-      }
-      if (isPhotoRemoved) {
-        formData.set('remove_photo', 'true');
-      }
-
-      const result = await upsertPlayer(prev, formData);
-      if (!result) onDone();
-      return result;
-    },
-    null,
-  );
-
-  async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    setClientError(null);
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setPhotoFeedback(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!file.type.startsWith('image/')) {
+      setPhotoFeedback({ text: 'Please choose an image file (PNG, JPG, WebP).', isError: true });
+      e.target.value = '';
+      return;
+    }
+
+    setIsProcessingPhoto(true);
+    setPhotoFeedback({ text: 'Resizing to max 800 px and converting to WebP…' });
+
     try {
-      setIsProcessingImage(true);
-      // Resize in browser to max 800 px and convert to WebP
       const { blob, fileName } = await resizeImageToWebP(file, 800, 0.85);
       setPhotoBlob(blob);
       setPhotoFileName(fileName);
       setPreviewUrl(URL.createObjectURL(blob));
       setIsPhotoRemoved(false);
+      setPhotoFeedback({ text: `Photo ready · WebP converted (${Math.round(blob.size / 1024)} KB)` });
     } catch (err: unknown) {
-      setClientError(err instanceof Error ? err.message : 'Error processing image');
+      setPhotoFeedback({
+        text: err instanceof Error ? err.message : 'Error converting photo to WebP',
+        isError: true,
+      });
     } finally {
-      setIsProcessingImage(false);
+      setIsProcessingPhoto(false);
+      e.target.value = '';
     }
   }
 
@@ -257,184 +486,331 @@ function PlayerForm({
     setPhotoBlob(null);
     setPhotoFileName('');
     setIsPhotoRemoved(true);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    setPhotoFeedback(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  function validate(): boolean {
+    const nextErrors: Record<string, string> = {};
+
+    if (!name.trim()) {
+      nextErrors.name = 'Please enter a player name.';
     }
+
+    const priceNum = Number(basePrice);
+    if (basePrice === '' || isNaN(priceNum) || priceNum < 0) {
+      nextErrors.basePrice = 'Enter a valid non-negative base price.';
+    } else if (granularity > 0 && priceNum % granularity !== 0) {
+      nextErrors.basePrice = `Base price must be a multiple of ₹${granularity}.`;
+    }
+
+    if (!position) {
+      nextErrors.position = 'Please select a position.';
+    }
+
+    if (!category.trim()) {
+      nextErrors.category = 'Please select a category.';
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validate()) return;
+
+    startSavingTransition(async () => {
+      const formData = new FormData();
+      if (player?.id) formData.set('id', player.id);
+      formData.set('name', name.trim());
+      formData.set('base_price', basePrice);
+      formData.set('position', position);
+      formData.set('category', category);
+
+      if (photoBlob) {
+        formData.set('photo_file', photoBlob, photoFileName);
+      }
+      if (isPhotoRemoved) {
+        formData.set('remove_photo', 'true');
+      }
+
+      const errorResult = await upsertPlayer(null, formData);
+      if (errorResult) {
+        setErrors((prev) => ({ ...prev, form: errorResult }));
+      } else {
+        onSuccess(isNew ? 'Player added to roster.' : 'Player details updated.');
+      }
+    });
   }
 
   return (
-    <form action={action} className="bg-white shadow rounded-xl p-5 space-y-4 border border-gray-200">
-      {player && <input type="hidden" name="id" value={player.id} />}
-
-      <h3 className="font-bold text-gray-900 border-b pb-2 text-sm">
-        {player ? `Edit Player: ${player.name}` : 'Add New Player'}
-      </h3>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Name (Required) */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">
-            Player Name *
-          </label>
-          <input
-            name="name"
-            type="text"
-            defaultValue={player?.name ?? ''}
-            placeholder="e.g. Lionel Messi"
-            required
-            className="w-full bg-white text-gray-900 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-          />
-        </div>
-
-        {/* Base Price (Prefilled from settings.default_base_price, validated to granularity) */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">
-            Base Price (₹) *
-          </label>
-          <input
-            name="base_price"
-            type="number"
-            step="any"
-            min="0"
-            defaultValue={defaultBasePrice}
-            required
-            className="w-full bg-white text-gray-900 border border-gray-300 rounded-md px-3 py-2 text-sm font-mono font-bold focus:outline-none focus:ring-2 focus:ring-green-500"
-          />
-          <p className="text-[11px] text-gray-500 mt-0.5">
-            Prefilled with ₹{settings?.default_base_price ?? 100}. Must be a multiple of ₹{granularity}.
+    <>
+      <div className="manage-form-head">
+        <span className="manage-form-number">
+          {isNew ? <IconPlus /> : <IconEdit />}
+        </span>
+        <div className="manage-form-head-copy">
+          <h2 id="playersFormTitle">
+            {isNew ? 'Add new player' : `Edit player: ${player?.name}`}
+          </h2>
+          <p id="playersFormSubtitle">
+            {isNew
+              ? 'Add a player to your auction roster.'
+              : 'Update this player’s details and photo.'}
           </p>
         </div>
-
-        {/* Position Dropdown */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">
-            Position *
-          </label>
-          <select
-            name="position"
-            defaultValue={player?.position ?? DEFAULT_POSITION}
-            className="w-full bg-white text-gray-900 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-          >
-            {POSITION_OPTIONS.map((pos) => (
-              <option key={pos.code} value={pos.code}>
-                {pos.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] text-gray-500 mt-0.5">
-            Stored as short code (GK, DEF, MID, W, ST, NS).
-          </p>
-        </div>
-
-        {/* Category Dropdown (Required, no default) */}
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">
-            Category *
-          </label>
-          <select
-            name="category"
-            defaultValue={player?.category ?? ''}
-            required
-            className="w-full bg-white text-gray-900 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-          >
-            <option value="" disabled>
-              -- Select Category (Required) --
-            </option>
-            {CATEGORY_OPTIONS.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* ── PHOTO UPLOAD SECTION (WebP converted & resized to max 800px) ── */}
-      <div className="pt-2 border-t border-gray-100">
-        <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-          Player Photo
-        </label>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          {/* Avatar Preview or Fallback Initials */}
-          <div className="w-16 h-16 rounded-full border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
-            {previewUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={previewUrl}
-                alt="Preview"
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="font-bold text-slate-500 text-sm">
-                {player?.name ? getInitials(player.name) : 'Photo'}
-              </span>
-            )}
-          </div>
-
-          <div className="flex-1 w-full space-y-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageSelect}
-              disabled={isProcessingImage}
-              className="block w-full text-xs text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-100 hover:file:bg-gray-200 cursor-pointer"
-            />
-            <p className="text-[11px] text-gray-500">
-              Resized in browser to max 800 px and converted to WebP. Stored in <code>branding/players/</code>.
-            </p>
-          </div>
-
-          {previewUrl && (
-            <button
-              type="button"
-              onClick={handleRemovePhoto}
-              className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors shrink-0"
-            >
-              Remove
-            </button>
-          )}
-        </div>
-
-        {clientError && (
-          <p className="text-red-600 text-xs font-semibold mt-1">{clientError}</p>
-        )}
-      </div>
-
-      {error && <p className="text-red-600 text-xs font-semibold">{error}</p>}
-
-      <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-        <button
-          type="submit"
-          disabled={pending || isProcessingImage}
-          className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-bold px-5 py-2 rounded-lg text-sm transition-colors shadow-xs"
-        >
-          {pending ? 'Saving…' : isProcessingImage ? 'Processing photo…' : player ? 'Update Player' : 'Add Player'}
-        </button>
+        <span className="manage-form-tag" id="playersFormTag">
+          {isNew ? 'NEW PLAYER' : 'EDIT PLAYER'}
+        </span>
         <button
           type="button"
-          onClick={onDone}
-          className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+          onClick={onClose}
+          className="manage-form-close"
+          aria-label="Close player form"
         >
-          Cancel
+          <IconClose />
         </button>
       </div>
-    </form>
+
+      <form onSubmit={handleSubmit} noValidate>
+        <div className="players-form-layout">
+          {/* Left inputs grid */}
+          <div className="players-form-fields">
+            {/* Player Name */}
+            <div className={`manage-field ${errors.name ? 'invalid' : ''}`} id="playersNameField">
+              <label className="manage-field-label" htmlFor="playersName">
+                Player name <span aria-hidden="true">*</span>
+              </label>
+              <div className="manage-field-control">
+                <input
+                  id="playersName"
+                  name="playerName"
+                  type="text"
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (errors.name) setErrors((prev) => ({ ...prev, name: '' }));
+                  }}
+                  placeholder="e.g. Lionel Messi"
+                  required
+                  autoComplete="off"
+                />
+              </div>
+              {errors.name && <span className="manage-field-error">{errors.name}</span>}
+            </div>
+
+            {/* Base Price */}
+            <div className={`manage-field ${errors.basePrice ? 'invalid' : ''}`} id="playersBaseField">
+              <label className="manage-field-label" htmlFor="playersBase">
+                Base price (₹) <span aria-hidden="true">*</span>
+              </label>
+              <div className="manage-field-control">
+                <span className="manage-prefix" aria-hidden="true">₹</span>
+                <input
+                  id="playersBase"
+                  name="basePrice"
+                  type="number"
+                  inputMode="numeric"
+                  value={basePrice}
+                  onChange={(e) => {
+                    setBasePrice(e.target.value);
+                    if (errors.basePrice) setErrors((prev) => ({ ...prev, basePrice: '' }));
+                  }}
+                  min={0}
+                  step="any"
+                  required
+                />
+              </div>
+              <p className="manage-field-help" id="playersBaseHelp">
+                Prefilled with ₹{settings?.default_base_price ?? 100}. Must be a multiple of ₹{granularity}.
+              </p>
+              {errors.basePrice && <span className="manage-field-error">{errors.basePrice}</span>}
+            </div>
+
+            {/* Position */}
+            <div className={`manage-field ${errors.position ? 'invalid' : ''}`} id="playersPositionField">
+              <label className="manage-field-label" htmlFor="playersPosition">
+                Position <span aria-hidden="true">*</span>
+              </label>
+              <div className="manage-field-control player-select-wrap">
+                <select
+                  id="playersPosition"
+                  name="position"
+                  value={position}
+                  onChange={(e) => {
+                    setPosition(e.target.value);
+                    if (errors.position) setErrors((prev) => ({ ...prev, position: '' }));
+                  }}
+                  required
+                >
+                  {POSITION_OPTIONS.map((pos) => (
+                    <option key={pos.code} value={pos.code}>
+                      {pos.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="manage-field-help" id="playersPositionHelp">
+                Short codes stored: GK, DEF, MID, W, ST, CB, FW, NS.
+              </p>
+              {errors.position && <span className="manage-field-error">{errors.position}</span>}
+            </div>
+
+            {/* Category */}
+            <div className={`manage-field ${errors.category ? 'invalid' : ''}`} id="playersCategoryField">
+              <label className="manage-field-label" htmlFor="playersCategory">
+                Category <span aria-hidden="true">*</span>
+              </label>
+              <div className="manage-field-control player-select-wrap">
+                <select
+                  id="playersCategory"
+                  name="category"
+                  value={category}
+                  onChange={(e) => {
+                    setCategory(e.target.value);
+                    if (errors.category) setErrors((prev) => ({ ...prev, category: '' }));
+                  }}
+                  required
+                >
+                  <option value="" disabled>
+                    — Select category (required) —
+                  </option>
+                  {CATEGORY_OPTIONS.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="manage-field-help" id="playersCategoryHelp">
+                Required option for player tier / bidding order.
+              </p>
+              {errors.category && <span className="manage-field-error">{errors.category}</span>}
+            </div>
+          </div>
+
+          {/* Right photo picker column */}
+          <div className="player-photo-field">
+            <div className="manage-field-label">Player photo</div>
+            <div className="player-photo-picker">
+              <div className="player-portrait player-form-portrait" id="playersPhotoPreview">
+                {previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={previewUrl} alt="Preview portrait" />
+                ) : (
+                  <span className="player-portrait-fallback">
+                    {getInitials(name || 'Player')}
+                  </span>
+                )}
+              </div>
+              <div className="player-photo-copy">
+                <p className="player-photo-title" id="playersPhotoTitle">
+                  {previewUrl ? 'Current player photo' : 'Add a player photo'}
+                </p>
+                <p className="player-photo-help">
+                  Resized in browser to max 800 px and converted to WebP.
+                </p>
+                <div className="player-photo-actions">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isProcessingPhoto || isSaving}
+                    className="player-photo-action"
+                    id="playersChoosePhoto"
+                  >
+                    {previewUrl ? 'Replace photo ↗' : 'Choose photo ↗'}
+                  </button>
+                  {previewUrl && (
+                    <button
+                      type="button"
+                      onClick={handleRemovePhoto}
+                      disabled={isProcessingPhoto || isSaving}
+                      className="player-photo-action remove"
+                      id="playersRemovePhoto"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <input
+                  ref={fileInputRef}
+                  id="playersPhotoFile"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="sr-only"
+                  tabIndex={-1}
+                  aria-label="Upload player photo"
+                />
+              </div>
+            </div>
+
+            {photoFeedback && (
+              <p
+                className={`player-photo-feedback ${photoFeedback.isError ? 'error' : ''}`}
+                role="status"
+              >
+                {photoFeedback.text}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Global form error message */}
+        {errors.form && (
+          <div className="mx-4 mb-2 p-3 bg-red-50 border border-red-200 text-xs text-red-700 font-bold">
+            {errors.form}
+          </div>
+        )}
+
+        {/* Bottom actions strip */}
+        <div className="manage-form-bottom">
+          <div className="players-form-note">
+            Photos are saved to public Supabase bucket <code>branding/players/</code>. Old photos are deleted on replace or delete.
+          </div>
+          <div className="manage-form-actions">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSaving}
+              className="manage-form-cancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving || isProcessingPhoto}
+              className="manage-form-submit"
+            >
+              <span>{isSaving ? 'Saving…' : isNew ? 'Add player' : 'Save changes'}</span>
+              <IconArrow />
+            </button>
+          </div>
+        </div>
+      </form>
+    </>
   );
 }
 
-/* ── CSV Import Modal Component ── */
+/* ══════════════════════════════════════════════════════════════════ */
+/* ── CSV IMPORT MODAL (Neo-Brutalist)                              ── */
+/* ══════════════════════════════════════════════════════════════════ */
 function CsvImportModal({
   settings,
   onClose,
+  onSuccess,
 }: {
   settings: Settings | null;
   onClose: () => void;
+  onSuccess: (count: number) => void;
 }) {
   const [csvText, setCsvText] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
   const [isPending, startTransition] = useTransition();
-  const [resultMessage, setResultMessage] = useState<string | null>(null);
+
+  const defaultBasePrice = settings?.default_base_price ?? 100;
+  const granularity = settings?.bid_granularity ?? 1;
 
   function handleFileLoad(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -448,100 +824,159 @@ function CsvImportModal({
 
   function handleImport() {
     setErrors([]);
-    setResultMessage(null);
-
     startTransition(async () => {
       const res = await importPlayersCsv(csvText);
       if (res.errors.length > 0) {
         setErrors(res.errors);
       } else {
-        setResultMessage(`Successfully imported ${res.successCount} players!`);
-        setTimeout(() => onClose(), 1500);
+        onSuccess(res.successCount);
       }
     });
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-200 space-y-4 max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between border-b pb-3">
-          <h3 className="font-bold text-gray-900 text-base">Import Players via CSV</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm font-bold">
-            ✕
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="csvModalTitle">
+      <div className="modal max-w-[580px] w-full">
+        <div className="modal-top">
+          <span className="modal-eyebrow">BATCH ROSTER IMPORT</span>
+          <button type="button" onClick={onClose} className="modal-close" aria-label="Close dialog">
+            <IconClose />
           </button>
         </div>
 
-        <div className="text-xs text-gray-600 space-y-1">
-          <p>Format: <code>Name, Position, Category, BasePrice</code></p>
+        <h2 id="csvModalTitle">Import Players via CSV</h2>
+        <p className="modal-desc">
+          Upload or paste a comma-separated list of players to import them directly into your roster.
+        </p>
+
+        {/* Format guide box */}
+        <div className="bg-[#edf2ff] border border-[#bac9eb] p-3 text-xs text-[#142351] space-y-1 my-3">
           <p>
-            Positions: <strong>GK, DEF, MID, W, ST, NS</strong>
+            <strong>CSV Columns:</strong> <code>Name, Position, Category, BasePrice</code>
           </p>
           <p>
-            Categories: <strong>{CATEGORY_OPTIONS.join(', ')}</strong>
+            <strong>Allowed Positions:</strong> <code>{POSITION_OPTIONS.map((p) => p.code).join(', ')}</code>
           </p>
           <p>
-            Default base price if blank: <strong>₹{settings?.default_base_price ?? 100}</strong> (multiple of ₹{settings?.bid_granularity ?? 1}).
+            <strong>Allowed Categories:</strong> <code>{CATEGORY_OPTIONS.join(', ')}</code>
+          </p>
+          <p>
+            <strong>Base Price:</strong> Optional (defaults to ₹{defaultBasePrice}, must be a multiple of ₹{granularity}).
           </p>
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">
+        {/* File chooser */}
+        <div className="my-2">
+          <label className="block text-[10px] font-bold tracking-wider text-[#101c4a] uppercase mb-1">
             Choose CSV file:
           </label>
           <input
             type="file"
             accept=".csv, text/csv"
             onChange={handleFileLoad}
-            className="block w-full text-xs text-gray-700 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:bg-gray-100 hover:file:bg-gray-200"
+            className="block w-full text-xs text-[#101c4a] file:mr-3 file:py-1.5 file:px-3 file:border-2 file:border-[#081342] file:text-[10px] file:font-bold file:uppercase file:bg-[#efff00] file:text-[#081342] cursor-pointer"
           />
         </div>
 
-        <div className="flex-1 flex flex-col min-h-32">
-          <label className="block text-xs font-semibold text-gray-700 mb-1">
-            Or paste CSV data here:
+        {/* Textarea */}
+        <div className="my-2">
+          <label className="block text-[10px] font-bold tracking-wider text-[#101c4a] uppercase mb-1">
+            Or paste CSV data:
           </label>
           <textarea
             value={csvText}
             onChange={(e) => setCsvText(e.target.value)}
             rows={5}
-            placeholder={`Name, Position, Category, BasePrice\nKylian Mbappe, ST, Senior, 100\nBukayo Saka, W, Young, 100\nDeclan Rice, MID, Experienced, 100`}
-            className="w-full flex-1 p-2.5 text-xs font-mono border rounded-lg focus:outline-none focus:ring-1 focus:ring-green-500 bg-white text-gray-900"
+            placeholder={`Name, Position, Category, BasePrice\nLionel Messi, ST, Senior, 100\nBukayo Saka, W, Young, 100\nManuel Neuer, GK, Senior, 100`}
+            className="w-full p-2.5 text-xs font-mono border-2 border-[#bbc9e7] bg-[#f8faff] text-[#101c4a] focus:bg-white focus:border-[#1947f4] outline-none"
           />
         </div>
 
+        {/* Validation Errors Box */}
         {errors.length > 0 && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 max-h-36 overflow-y-auto space-y-1">
-            <p className="font-bold">Validation Errors ({errors.length}):</p>
+          <div className="p-3 bg-[#fff0f2] border-2 border-[#b2192e] text-xs text-[#b2192e] max-h-36 overflow-y-auto space-y-1 my-2">
+            <p className="font-bold uppercase tracking-wider">Validation Errors ({errors.length}):</p>
             {errors.map((err, i) => (
               <p key={i}>• {err}</p>
             ))}
           </div>
         )}
 
-        {resultMessage && (
-          <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800 font-bold">
-            {resultMessage}
-          </div>
-        )}
-
-        <div className="flex items-center justify-end gap-2 pt-2 border-t">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 hover:bg-gray-50"
-          >
+        {/* Modal actions */}
+        <div className="modal-actions mt-4">
+          <button type="button" onClick={onClose} disabled={isPending} className="modal-btn cancel">
             Cancel
           </button>
           <button
             type="button"
             onClick={handleImport}
             disabled={isPending || !csvText.trim()}
-            className="px-5 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs"
+            className="modal-btn confirm"
           >
             {isPending ? 'Validating…' : 'Validate & Import'}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════ */
+/* ── INLINE SVG ICONS (Theme-Consistent)                          ── */
+/* ══════════════════════════════════════════════════════════════════ */
+function IconPlus() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function IconArrow() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  );
+}
+
+function IconSearch() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m15.5 15.5 4.5 4.5" />
+    </svg>
+  );
+}
+
+function IconEdit() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m4 16-.5 4.5L8 20 19.5 8.5 15.5 4.5 4 16ZM13.5 6.5l4 4" />
+    </svg>
+  );
+}
+
+function IconTrash() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 10v7m4-7v7" />
+    </svg>
+  );
+}
+
+function IconClose() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+function IconUpload() {
+  return (
+    <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 15V4m-4 4 4-4 4 4M4 16v4h16v-4" />
+    </svg>
   );
 }
