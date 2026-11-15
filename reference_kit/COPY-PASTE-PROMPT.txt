@@ -1,0 +1,9 @@
+Please implement the VSL projector auction stage, approved Teams board and player-signing reveal using the attached reference kit. Read README-agent-handoff.md first and inspect the real repository before editing; the reported file paths and event flow in the handoff need verification.
+
+My original 1080p background-only MP4 is located at: [REPLACE THIS WITH THE PATH TO YOUR VIDEO, OR ATTACH IT TO YOUR AGENT'S WORKSPACE]. The video in the reference kit came from a low-resolution GIF and is only for visual guidance. Use the original 1080p clip in the app, and use the supplied signing sound separately.
+
+Use real player, team and price data. Keep the entire player photo and its background; do not crop it into a cutout. Preserve the approved Teams board design and its controls. The reference clip already contains two-sided sparks, so avoid adding duplicate effects if my original does too. Do not change the real sale transaction or deploy the standalone demo.
+
+After verifying the schema, use the committed sold event as the sole animation trigger, deduplicate by event ID, handle consecutive sales and undo, and resync safely on reconnect. Do not make database migrations or weaken permissions without explaining the need first. Handle blocked sound/video, skip and reduced motion. Use safe development/staging tests, not real production sales.
+
+Run the project's tests and checks, then tell me what changed, where to put the video, how to enable projector sound, what you tested, and any remaining limitations. Do not push or deploy without my approval.

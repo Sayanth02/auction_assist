@@ -3,18 +3,10 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { AuctionState, Player, Settings, Team, BidLog } from '@/lib/supabase/types';
-import { playBidSound, playSoldFanfare } from '@/lib/sound';
+import { playBidSound } from '@/lib/sound';
 import { getInitials } from '@/lib/player-constants';
 import { getTeamPalette, getTeamInitials } from '@/lib/team-utils';
-
-interface SoldMomentData {
-  playerName: string;
-  playerPosition?: string | null;
-  playerCategory?: string | null;
-  teamName: string;
-  teamLogo?: string | null;
-  price: number;
-}
+import { SoldRevealOverlay, type SoldRevealData } from './SoldRevealOverlay';
 
 interface DisplayProps {
   initialSettings: Settings;
@@ -42,7 +34,7 @@ export default function DisplayScreen({
   const [teams, setTeams] = useState<Team[]>(initialTeams);
   const [players, setPlayers] = useState<Player[]>(initialPlayers);
   const [recentSold, setRecentSold] = useState<(Player & { teamName?: string })[]>(initialRecentSold);
-  const [soldMoment, setSoldMoment] = useState<SoldMomentData | null>(null);
+  const [activeReveal, setActiveReveal] = useState<SoldRevealData | null>(null);
 
   // View state: 'stage' (Cinematic Stage) or 'board' (Teams Board)
   const [view, setView] = useState<'stage' | 'board'>('stage');
@@ -57,9 +49,29 @@ export default function DisplayScreen({
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const prevBidRef = useRef<number | null>(initialAuctionState.current_bid);
-  const soldTimerRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const supabase = createClient();
+  // Keep a stable Supabase client instance so channels remain permanently connected
+  const supabase = useMemo(() => createClient(), []);
+
+  // Reveal queue and event deduplication refs
+  const revealQueueRef = useRef<SoldRevealData[]>([]);
+  const handledSoldIdsRef = useRef<Set<string>>(new Set());
+  const activeRevealRef = useRef<SoldRevealData | null>(null);
+  const playersRef = useRef<Player[]>(players);
+  const teamsRef = useRef<Team[]>(teams);
+
+  // Sync refs safely outside render for realtime event handlers
+  useEffect(() => {
+    activeRevealRef.current = activeReveal;
+  }, [activeReveal]);
+
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
+
+  useEffect(() => {
+    teamsRef.current = teams;
+  }, [teams]);
 
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -67,28 +79,100 @@ export default function DisplayScreen({
     toastTimerRef.current = setTimeout(() => setToastMessage(null), 3200);
   }, []);
 
-  // Helper to find team by ID
-  const getTeam = useCallback(
-    (teamId: string | null) => {
-      if (!teamId) return null;
-      return teams.find((t) => t.id === teamId) || null;
+  // Advance the reveal queue when current reveal finishes or is skipped
+  const advanceRevealQueue = useCallback(() => {
+    if (revealQueueRef.current.length > 0) {
+      const next = revealQueueRef.current.shift()!;
+      setActiveReveal(next);
+    } else {
+      setActiveReveal(null);
+    }
+  }, []);
+
+  const handleFinishReveal = useCallback(() => {
+    advanceRevealQueue();
+  }, [advanceRevealQueue]);
+
+  const handleSkipReveal = useCallback(() => {
+    advanceRevealQueue();
+  }, [advanceRevealQueue]);
+
+  // Queue consecutive sales or play immediately
+  const enqueueOrPlayReveal = useCallback((revealData: SoldRevealData) => {
+    if (activeRevealRef.current) {
+      revealQueueRef.current.push(revealData);
+    } else {
+      setActiveReveal(revealData);
+    }
+  }, []);
+
+  // Handle undo event: cancels queued reveals, active reveal, and clears deduplication cache for the undone player
+  const handleUndoEvent = useCallback(
+    (undonePlayerId: string) => {
+      // 1. Purge all deduplication keys tied to this player so they can be re-sold and celebrated again
+      for (const key of Array.from(handledSoldIdsRef.current)) {
+        if (key.includes(undonePlayerId)) {
+          handledSoldIdsRef.current.delete(key);
+        }
+      }
+
+      // 2. Remove any pending queued reveals for this player
+      revealQueueRef.current = revealQueueRef.current.filter(
+        (item) => item.playerId !== undonePlayerId
+      );
+
+      // 3. If currently showing this player, dismiss immediately and advance queue
+      if (activeRevealRef.current && activeRevealRef.current.playerId === undonePlayerId) {
+        advanceRevealQueue();
+      }
+
+      // 4. Remove from recent sold list
+      setRecentSold((prev) => prev.filter((p) => p.id !== undonePlayerId));
     },
-    [teams]
+    [advanceRevealQueue]
   );
 
-  // Trigger celebratory SOLD moment
-  const triggerSoldMoment = useCallback(
-    (data: SoldMomentData) => {
-      if (soldTimerRef.current) clearTimeout(soldTimerRef.current);
-      setSoldMoment(data);
-      if (soundEnabled) playSoldFanfare();
+  const enqueueOrPlayRevealRef = useRef(enqueueOrPlayReveal);
+  const handleUndoEventRef = useRef(handleUndoEvent);
 
-      soldTimerRef.current = setTimeout(() => {
-        setSoldMoment(null);
-      }, 6500);
-    },
-    [soundEnabled]
-  );
+  useEffect(() => {
+    enqueueOrPlayRevealRef.current = enqueueOrPlayReveal;
+  }, [enqueueOrPlayReveal]);
+
+  useEffect(() => {
+    handleUndoEventRef.current = handleUndoEvent;
+  }, [handleUndoEvent]);
+
+  // Safe staging/operator preview trigger without modifying the live database
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __testSoldReveal?: (custom?: Partial<SoldRevealData>) => void }).__testSoldReveal = (
+        custom?: Partial<SoldRevealData>
+      ) => {
+        const demoPlayer = currentPlayer || players[0];
+        const demoTeam = leadingTeam || teams[0];
+        const mockReveal: SoldRevealData = {
+          eventId: `test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          playerId: demoPlayer?.id || 'demo-p1',
+          playerName: demoPlayer?.name || 'Demo Player',
+          playerPosition: demoPlayer?.position || 'Forward',
+          playerCategory: demoPlayer?.category || 'Tier 1',
+          photoUrl: demoPlayer?.photo_url || null,
+          teamId: demoTeam?.id || 'demo-t1',
+          teamName: demoTeam?.name || 'Demo FC',
+          teamLogo: demoTeam?.logo_url || null,
+          price: auctionState.current_bid || 150000,
+          ...custom,
+        };
+        enqueueOrPlayReveal(mockReveal);
+      };
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        delete (window as unknown as { __testSoldReveal?: unknown }).__testSoldReveal;
+      }
+    };
+  }, [currentPlayer, players, leadingTeam, teams, auctionState.current_bid, enqueueOrPlayReveal]);
 
   // Fullscreen handler
   const toggleFullscreen = async () => {
@@ -157,6 +241,13 @@ export default function DisplayScreen({
           setAuctionState(newState);
 
           if (newState.current_player_id) {
+            // When a player is actively on the block, ensure their old sold cache is clear
+            for (const key of Array.from(handledSoldIdsRef.current)) {
+              if (key.includes(newState.current_player_id)) {
+                handledSoldIdsRef.current.delete(key);
+              }
+            }
+
             const { data: pData } = await supabase
               .from('players')
               .select('*')
@@ -181,7 +272,7 @@ export default function DisplayScreen({
       )
       .subscribe();
 
-    // 2. Listen for players changes (roster updates, sold event)
+    // 2. Listen for players changes (roster updates, and sold event fallback)
     const playersChannel = supabase
       .channel('display_players')
       .on(
@@ -196,27 +287,41 @@ export default function DisplayScreen({
 
           // If a player was marked sold
           if (payload.eventType === 'UPDATE' && updatedPlayer.status === 'sold') {
-            const winnerTeam = getTeam(updatedPlayer.team_id);
-            triggerSoldMoment({
-              playerName: updatedPlayer.name,
-              playerPosition: updatedPlayer.position,
-              playerCategory: updatedPlayer.category,
-              teamName: winnerTeam?.name || 'Winning Team',
-              teamLogo: winnerTeam?.logo_url,
-              price: updatedPlayer.sold_price || 0,
-            });
-
-            // Update recent sold list
+            const winnerTeam = teamsRef.current.find((t) => t.id === updatedPlayer.team_id);
             setRecentSold((prev) => [
               { ...updatedPlayer, teamName: winnerTeam?.name },
               ...prev.filter((p) => p.id !== updatedPlayer.id).slice(0, 4),
             ]);
+
+            // Deduplicate across channels using saleKey
+            const saleKey = `sold:${updatedPlayer.id}:${updatedPlayer.sold_price || 0}`;
+            if (!handledSoldIdsRef.current.has(saleKey)) {
+              handledSoldIdsRef.current.add(saleKey);
+
+              const revealItem: SoldRevealData = {
+                eventId: `player-${updatedPlayer.id}-${Date.now()}`,
+                playerId: updatedPlayer.id,
+                playerName: updatedPlayer.name,
+                playerPosition: updatedPlayer.position,
+                playerCategory: updatedPlayer.category,
+                photoUrl: updatedPlayer.photo_url,
+                teamId: updatedPlayer.team_id,
+                teamName: winnerTeam?.name || 'Winning Team',
+                teamLogo: winnerTeam?.logo_url || null,
+                price: Number(updatedPlayer.sold_price || 0),
+              };
+
+              enqueueOrPlayRevealRef.current(revealItem);
+            }
+          } else if (payload.eventType === 'UPDATE' && updatedPlayer.status === 'available') {
+            // Player sale was undone or marked available again: purge cache and dismiss stale reveals
+            handleUndoEventRef.current(updatedPlayer.id);
           }
         }
       )
       .subscribe();
 
-    // 3. Listen for bid_log entries (handles sold & undo events)
+    // 3. Listen for bid_log entries (sole animation trigger for committed sales, plus undo handling)
     const logChannel = supabase
       .channel('display_bid_log')
       .on(
@@ -225,23 +330,74 @@ export default function DisplayScreen({
         async (payload) => {
           const newEntry = payload.new as BidLog;
           if (newEntry.type === 'sold') {
-            const { data: pData } = await supabase.from('players').select('*').eq('id', newEntry.player_id).single();
+            const saleKey = `sold:${newEntry.player_id}:${newEntry.amount || 0}`;
+            // Deduplicate by event UUID and saleKey
+            if (
+              handledSoldIdsRef.current.has(newEntry.id) ||
+              handledSoldIdsRef.current.has(saleKey)
+            ) {
+              return;
+            }
+            handledSoldIdsRef.current.add(newEntry.id);
+            handledSoldIdsRef.current.add(saleKey);
+
+            // Fetch authoritative player and team data
+            const fallbackPlayer = playersRef.current.find((p) => p.id === newEntry.player_id);
+            const fallbackTeam = teamsRef.current.find((t) => t.id === newEntry.team_id);
+
+            const { data: pData } = await supabase
+              .from('players')
+              .select('*')
+              .eq('id', newEntry.player_id)
+              .single();
+
             const { data: tData } = newEntry.team_id
               ? await supabase.from('teams').select('*').eq('id', newEntry.team_id).single()
               : { data: null };
 
-            if (pData && tData) {
-              triggerSoldMoment({
-                playerName: pData.name,
-                playerPosition: pData.position,
-                playerCategory: pData.category,
-                teamName: tData.name,
-                teamLogo: tData.logo_url,
-                price: newEntry.amount || 0,
-              });
-            }
+            const playerName = pData?.name || fallbackPlayer?.name || 'Player';
+            const playerPosition = pData?.position || fallbackPlayer?.position || null;
+            const playerCategory = pData?.category || fallbackPlayer?.category || null;
+            const photoUrl = pData?.photo_url || fallbackPlayer?.photo_url || null;
+            const teamName = tData?.name || fallbackTeam?.name || 'Winning Team';
+            const teamLogo = tData?.logo_url || fallbackTeam?.logo_url || null;
+            const price = Number(newEntry.amount || 0);
+
+            const revealItem: SoldRevealData = {
+              eventId: newEntry.id,
+              seqId: newEntry.seq_id,
+              playerId: newEntry.player_id,
+              playerName,
+              playerPosition,
+              playerCategory,
+              photoUrl,
+              teamId: newEntry.team_id,
+              teamName,
+              teamLogo,
+              price,
+            };
+
+            // Keep recent sold list fresh with confirmed sale
+            setRecentSold((prev) => [
+              {
+                id: newEntry.player_id,
+                name: playerName,
+                position: playerPosition,
+                category: playerCategory,
+                photo_url: photoUrl,
+                status: 'sold',
+                team_id: newEntry.team_id,
+                sold_price: price,
+                base_price: fallbackPlayer?.base_price || 0,
+                created_at: newEntry.created_at,
+                teamName,
+              },
+              ...prev.filter((p) => p.id !== newEntry.player_id).slice(0, 4),
+            ]);
+
+            enqueueOrPlayRevealRef.current(revealItem);
           } else if (newEntry.type === 'undo') {
-            setSoldMoment(null);
+            handleUndoEventRef.current(newEntry.player_id);
           }
         }
       )
@@ -279,7 +435,7 @@ export default function DisplayScreen({
       supabase.removeChannel(teamsChannel);
       supabase.removeChannel(settingsChannel);
     };
-  }, [supabase, getTeam, triggerSoldMoment]);
+  }, [supabase]);
 
   // Overall Tournament Summary Calculations
   const totalTeams = teams.length;
@@ -499,8 +655,9 @@ export default function DisplayScreen({
           <button
             className="fullscreen-action"
             type="button"
-            aria-label="Toggle fullscreen"
-            title="Toggle fullscreen"
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen'}
+            aria-pressed={isFullscreen}
+            title={isFullscreen ? 'Exit fullscreen' : 'Toggle fullscreen'}
             onClick={toggleFullscreen}
           >
             <svg className="icon" aria-hidden="true" viewBox="0 0 24 24">
@@ -660,6 +817,12 @@ export default function DisplayScreen({
                   <strong>{String(soldCount).padStart(2, '0')}</strong>
                   <small>Players sold</small>
                 </div>
+                {recentSold[0] && (
+                  <div className="cinema-stat hidden md:flex">
+                    <strong className="truncate max-w-[140px]">{recentSold[0].name}</strong>
+                    <small>Last Sold · {recentSold[0].teamName || 'Confirmed'}</small>
+                  </div>
+                )}
               </div>
               <div className="cinema-note">
                 {settings.tournament_name || 'VSL SEASON 04'} · LIVE PROJECTOR STAGE
@@ -900,69 +1063,15 @@ export default function DisplayScreen({
         </main>
       )}
 
-      {/* ── CELEBRATORY "SOLD!" OVERLAY ── */}
-      {soldMoment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-300">
-          <div className="absolute inset-0 bg-radial from-emerald-500/20 via-transparent to-transparent pointer-events-none" />
-
-          <div className="relative max-w-2xl w-full bg-gradient-to-b from-slate-900 to-slate-950 border-4 border-amber-400/80 rounded-3xl p-8 sm:p-12 text-center shadow-[0_0_100px_rgba(251,191,36,0.3)] space-y-6">
-            <div className="inline-block transform -rotate-3 scale-110 sm:scale-125 mb-4 animate-bounce">
-              <span className="px-8 py-3 bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-500 text-slate-950 font-black text-4xl sm:text-6xl uppercase tracking-widest rounded-2xl shadow-2xl border-4 border-white">
-                🎉 SOLD! 🎉
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-xs font-black tracking-widest text-emerald-400 uppercase">
-                Acquired Player
-              </p>
-              <h3 className="text-4xl sm:text-6xl font-black text-white tracking-tight">
-                {soldMoment.playerName}
-              </h3>
-              {(soldMoment.playerPosition || soldMoment.playerCategory) && (
-                <p className="text-base text-slate-400 font-medium">
-                  {[soldMoment.playerPosition, soldMoment.playerCategory].filter(Boolean).join(' · ')}
-                </p>
-              )}
-            </div>
-
-            <div className="py-4 px-6 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center gap-4">
-              {soldMoment.teamLogo ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={soldMoment.teamLogo}
-                  alt={soldMoment.teamName}
-                  className="w-12 h-12 object-contain rounded-xl"
-                />
-              ) : (
-                <div
-                  className="w-12 h-12 rounded-full flex items-center justify-center font-black text-lg text-white shadow-md border border-white/20 shrink-0 select-none"
-                  style={{ backgroundColor: getTeamPalette(soldMoment.teamName).hex }}
-                >
-                  {getTeamInitials(soldMoment.teamName)}
-                </div>
-              )}
-              <div className="text-left">
-                <p className="text-xs font-bold text-slate-400 uppercase">Purchased By</p>
-                <p className="text-2xl sm:text-3xl font-black text-amber-300">{soldMoment.teamName}</p>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <p className="text-xs font-black tracking-widest text-slate-400 uppercase">Winning Bid</p>
-              <p className="text-5xl sm:text-7xl font-black font-mono text-emerald-400 drop-shadow">
-                ₹{soldMoment.price.toLocaleString('en-IN')}
-              </p>
-            </div>
-
-            <button
-              onClick={() => setSoldMoment(null)}
-              className="mt-4 px-6 py-2 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold tracking-wider text-slate-300 uppercase transition-colors"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
+      {/* ── CELEBRATORY SIGNING REVEAL OVERLAY ── */}
+      {activeReveal && (
+        <SoldRevealOverlay
+          data={activeReveal}
+          soundEnabled={soundEnabled}
+          onToggleSound={() => setSoundEnabled((prev) => !prev)}
+          onFinish={handleFinishReveal}
+          onSkip={handleSkipReveal}
+        />
       )}
 
       {/* ── TOAST NOTIFICATION ── */}

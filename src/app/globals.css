@@ -2105,6 +2105,127 @@ textarea::placeholder {
   gap: 8px;
 }
 
+.pool-tabs {
+  display: inline-flex;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  margin-left: 12px;
+}
+
+.pool-tab {
+  background: transparent;
+  color: #94a3b8;
+  border: none;
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pool-tab:hover {
+  color: #fff;
+}
+
+.pool-tab.active {
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.pool-tab.unsold.active {
+  background: #d97706;
+  color: #fff;
+}
+
+.requeue-unsold-btn {
+  background: #059669;
+  color: #fff;
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: transform .1s, background .15s;
+}
+
+.requeue-unsold-btn:hover {
+  background: #10b981;
+  transform: translateY(-1px);
+}
+
+.requeue-unsold-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.round-2-alert {
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.25) 0%, rgba(180, 83, 9, 0.15) 100%);
+  border: 2px solid #f59e0b;
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.4);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+
+.round-2-alert-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.round-2-badge {
+  background: #f59e0b;
+  color: #0f172a;
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .05em;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.round-2-alert-title {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: .03em;
+  color: #fef3c7;
+  text-transform: uppercase;
+}
+
+.round-2-alert-desc {
+  font-size: 12px;
+  color: #fde68a;
+  opacity: 0.9;
+  margin-top: 2px;
+}
+
+.pool-unsold-tag {
+  font-size: 10px;
+  font-weight: 900;
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+}
+
 .random-pick-btn {
   background: var(--yellow);
   color: var(--ink);
@@ -5931,3 +6052,1647 @@ textarea::placeholder {
     font-size: 28px
   }
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   PLAYER SIGNING REVEAL ANIMATION (FOOTBALL-GAME-STYLE)
+   ══════════════════════════════════════════════════════════════════ */
+
+.transfer-reveal {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  color: #fff;
+  background: #010719;
+  font-family: var(--font-dm-sans, 'DM Sans', -apple-system, sans-serif);
+  --duration: 9s;
+}
+
+.reveal-arena,
+.reveal-arena-sparks,
+.reveal-shade,
+.reveal-flash,
+.reveal-curtain,
+.spark-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.reveal-arena {
+  z-index: 1;
+}
+
+.reveal-background-poster {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.reveal-background-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  opacity: 0;
+  transition: opacity 0.22s ease-out;
+  pointer-events: none;
+  position: relative;
+  z-index: 1;
+}
+
+.reveal-background-video.is-visible {
+  opacity: 1;
+}
+
+.reveal-arena-sparks {
+  z-index: 2;
+  opacity: 0;
+}
+
+.reveal-shade {
+  z-index: 3;
+  background: radial-gradient(ellipse at 50% 50%, rgba(1, 7, 25, 0.25) 0%, rgba(1, 7, 25, 0.75) 100%);
+}
+
+.spark-canvas {
+  z-index: 4;
+}
+
+.reveal-flash {
+  z-index: 5;
+  background: #fff;
+  opacity: 0;
+}
+
+.reveal-curtain {
+  z-index: 6;
+  background: #010719;
+  opacity: 0;
+}
+
+/* Header & Controls */
+.reveal-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+  min-height: 72px;
+  margin: 0 clamp(20px, 3.5vw, 64px);
+}
+
+.transfer-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.transfer-brand svg {
+  width: 40px;
+  height: auto;
+}
+
+.transfer-brand strong {
+  display: block;
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+}
+
+.transfer-brand small {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  color: var(--yellow, #efff00);
+  margin-top: 4px;
+}
+
+.reveal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.reveal-demo-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(239, 255, 0, 0.12);
+  border: 1px solid rgba(239, 255, 0, 0.4);
+  color: var(--yellow, #efff00);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  border-radius: 4px;
+}
+
+.reveal-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.reveal-control:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.reveal-control.is-blocked {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+  animation: pulse-danger 1.5s infinite;
+}
+
+/* Stage & Intro */
+.reveal-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80px clamp(20px, 4vw, 80px) 60px;
+}
+
+.reveal-intro {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.intro-eyebrow {
+  font-size: clamp(14px, 1.3vw, 24px);
+  font-weight: 800;
+  letter-spacing: .25em;
+  color: var(--yellow, #efff00);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.intro-heading {
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(64px, 13vw, 190px);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: .03em;
+  color: #fff;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.intro-heading .intro-punctuation {
+  color: var(--yellow, #efff00);
+}
+
+.intro-bottom {
+  font-size: clamp(12px, 1.1vw, 20px);
+  font-weight: 800;
+  letter-spacing: .2em;
+  color: #b9c8e8;
+  text-transform: uppercase;
+  margin-top: 14px;
+}
+
+/* Reveal Stack: Final Composition */
+.reveal-stack {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: clamp(10px, 1.5vh, 20px);
+  max-width: 100%;
+}
+
+.final-headline {
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(48px, 6.5vw, 100px);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: .03em;
+  color: #fff;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.final-headline span {
+  color: var(--yellow, #efff00);
+}
+
+.deal-badge {
+  display: inline-block;
+  padding: 8px 18px;
+  background: var(--yellow, #efff00);
+  color: #030a1c;
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(14px, 1.5vw, 22px);
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  box-shadow: 0 4px 20px rgba(239, 255, 0, 0.4);
+}
+
+/* Portrait Card 3D Flip */
+.portrait-stage {
+  perspective: 1200px;
+  width: min(45vw, 42vh, 380px);
+  aspect-ratio: 1 / 1.05;
+  margin: 0 auto;
+}
+
+.transfer-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.8s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+
+.transfer-card-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 40px rgba(239, 255, 0, 0.15);
+}
+
+.transfer-card-back {
+  background: radial-gradient(circle at 50% 45%, #0f1f50 0%, #030818 85%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotateY(0deg);
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.card-back-crest-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  text-align: center;
+  width: 100%;
+  height: 100%;
+  padding: 14px 8px;
+  z-index: 2;
+}
+
+.card-back-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card-back-pill {
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  color: var(--yellow, #efff00);
+  background: rgba(239, 255, 0, 0.14);
+  border: 1px solid rgba(239, 255, 0, 0.4);
+  padding: 5px 14px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  box-shadow: 0 4px 15px rgba(239, 255, 0, 0.2);
+}
+
+.card-back-crest-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  width: 100%;
+}
+
+.card-back-crest-img {
+  width: clamp(110px, 14vw, 175px);
+  height: clamp(110px, 14vw, 175px);
+  object-fit: contain;
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.75));
+}
+
+.card-back-crest-fallback {
+  width: clamp(110px, 14vw, 165px);
+  height: clamp(110px, 14vw, 165px);
+  border-radius: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-weight: 900;
+  font-size: clamp(42px, 5vw, 70px);
+  color: #fff;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), inset 0 0 25px rgba(255, 255, 255, 0.25);
+  border: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.card-back-details {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.card-back-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #9ab4ee;
+  text-transform: uppercase;
+}
+
+.card-back-team-title {
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(24px, 2.8vw, 40px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  text-transform: uppercase;
+  line-height: 1.05;
+  text-shadow: 0 3px 12px rgba(0, 0, 0, 0.7);
+}
+
+.card-back-sub {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+}
+
+.transfer-card-front {
+  background: #02071a;
+  transform: rotateY(180deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.portrait-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #050d26;
+}
+
+.portrait-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.portrait-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: #091436;
+  color: #7990c7;
+  font-weight: 800;
+  font-size: 24px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+/* Copy info below card */
+.transfer-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.transfer-copy .player-name {
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(36px, 4.5vw, 68px);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: .03em;
+  color: #fff;
+  text-transform: uppercase;
+}
+
+/* Unified, high-impact single-line buying statement */
+.transfer-copy .buying-statement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: clamp(10px, 1.4vw, 22px);
+  background: rgba(4, 11, 35, 0.85);
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 999px;
+  padding: clamp(8px, 1.1vh, 14px) clamp(20px, 2.5vw, 40px);
+  box-shadow: 0 14px 45px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  white-space: nowrap;
+  max-width: 96vw;
+  margin-top: 4px;
+}
+
+.buying-statement .buying-action {
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(18px, 2vw, 30px);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #8da4dc;
+  text-transform: uppercase;
+}
+
+.buying-statement .buying-team-group {
+  display: inline-flex;
+  align-items: center;
+  gap: clamp(10px, 1.2vw, 16px);
+}
+
+.buying-statement .buying-team-crest {
+  width: clamp(34px, 4vw, 58px);
+  height: clamp(34px, 4vw, 58px);
+  object-fit: contain;
+  border-radius: 8px;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.6));
+}
+
+.buying-statement .buying-team-crest-fallback {
+  width: clamp(34px, 4vw, 58px);
+  height: clamp(34px, 4vw, 58px);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-weight: 900;
+  font-size: clamp(16px, 1.8vw, 26px);
+  color: #fff;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.buying-statement .buying-team-name {
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(26px, 3.6vw, 54px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--yellow, #efff00);
+  text-transform: uppercase;
+  line-height: 1;
+  text-shadow: 0 0 30px rgba(239, 255, 0, 0.4);
+}
+
+.buying-statement .buying-divider {
+  font-size: clamp(20px, 2.5vw, 36px);
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.35);
+  line-height: 1;
+  user-select: none;
+}
+
+.buying-statement .buying-fee-group {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.buying-statement .buying-fee-label {
+  font-size: clamp(12px, 1.2vw, 18px);
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: #8da4dc;
+  text-transform: uppercase;
+}
+
+.buying-statement .buying-fee-amount {
+  font-family: var(--display, 'Barlow Condensed', sans-serif);
+  font-size: clamp(26px, 3.6vw, 54px);
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  color: #ffffff;
+  line-height: 1;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
+}
+
+.transfer-copy .player-meta-tag {
+  font-size: clamp(12px, 1.1vw, 16px);
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: #8da2d4;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* Backward compatibility fallbacks */
+.transfer-copy .team-line {
+  display: none;
+}
+.transfer-copy .fee-line {
+  display: none;
+}
+
+/* Footer */
+.reveal-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  min-height: 48px;
+  margin: 0 clamp(20px, 3.5vw, 64px);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  color: #6d82b4;
+  text-transform: uppercase;
+}
+
+/* Animations */
+.transfer-reveal.is-playing {
+  animation: reveal-fade var(--duration) linear both;
+}
+
+.transfer-reveal.is-playing .reveal-arena-sparks {
+  animation: sparks-light var(--duration) linear both;
+}
+
+.transfer-reveal.is-playing .reveal-flash {
+  animation: signing-flash var(--duration) linear both;
+}
+
+.transfer-reveal.is-playing .reveal-curtain {
+  animation: curtain-fade var(--duration) linear both;
+}
+
+.transfer-reveal.is-playing .reveal-intro {
+  animation: intro-moment var(--duration) cubic-bezier(0.25, 0.6, 0.25, 1) both;
+}
+
+.transfer-reveal.is-playing .final-headline {
+  animation: final-heading var(--duration) both;
+}
+
+.transfer-reveal.is-playing .deal-badge {
+  animation: badge-in var(--duration) both;
+}
+
+.transfer-reveal.is-playing .portrait-stage {
+  animation: portrait-in var(--duration) cubic-bezier(0.2, 0.7, 0.15, 1) both;
+}
+
+.transfer-reveal.is-playing .transfer-card {
+  animation: portrait-turn var(--duration) cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+
+.transfer-reveal.is-playing .player-name {
+  animation: name-in var(--duration) both;
+}
+
+.transfer-reveal.is-playing .team-line,
+.transfer-reveal.is-playing .buying-statement {
+  animation: team-in var(--duration) both;
+}
+
+.transfer-reveal.is-playing .fee-line,
+.transfer-reveal.is-playing .player-meta-tag {
+  animation: fee-in var(--duration) both;
+}
+
+@keyframes reveal-fade {
+  0%, 96% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes sparks-light {
+  0%, 23% { opacity: 0; }
+  26%, 91% { opacity: 1; }
+  96%, 100% { opacity: 0; }
+}
+
+@keyframes signing-flash {
+  0%, 23.5% { opacity: 0; }
+  24.3% { opacity: 0.53; }
+  28%, 100% { opacity: 0; }
+}
+
+@keyframes curtain-fade {
+  0% { opacity: 1; }
+  3%, 90% { opacity: 0; }
+  96%, 100% { opacity: 1; }
+}
+
+@keyframes intro-moment {
+  0% { opacity: 0; transform: scale(1.22); }
+  5% { opacity: 1; transform: scale(1); }
+  11% { opacity: 1; transform: scale(1); }
+  15%, 100% { opacity: 0; transform: scale(0.95); }
+}
+
+@keyframes final-heading {
+  0%, 15% { opacity: 0; transform: translateY(20px); }
+  21%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes badge-in {
+  0%, 23.5% { opacity: 0; transform: scale(1.14); }
+  27%, 100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes portrait-in {
+  0%, 13% { opacity: 0; transform: translateY(55px) scale(0.78); }
+  18% { opacity: 1; transform: translateY(15px) scale(0.94); }
+  24%, 100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes portrait-turn {
+  0%, 15% { transform: rotateY(0deg); }
+  24%, 100% { transform: rotateY(180deg); }
+}
+
+@keyframes name-in {
+  0%, 20% { opacity: 0; transform: translateY(18px); }
+  26%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes team-in {
+  0%, 23% { opacity: 0; transform: translateY(15px); }
+  29%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fee-in {
+  0%, 26% { opacity: 0; transform: translateY(8px); }
+  32%, 100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .transfer-reveal.is-playing,
+  .transfer-reveal.is-playing * {
+    animation: none !important;
+  }
+  .reveal-arena-sparks,
+  .final-headline,
+  .deal-badge,
+  .portrait-stage,
+  .player-name,
+  .buying-statement,
+  .player-meta-tag,
+  .team-line,
+  .fee-line {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .transfer-card {
+    transform: rotateY(180deg) !important;
+  }
+  .reveal-intro,
+  .reveal-flash,
+  .reveal-curtain,
+  .spark-canvas,
+  .reveal-background-video {
+    display: none !important;
+  }
+}
+
+/* Narrow & mobile adaptations */
+@media (max-width: 850px) and (orientation: portrait) {
+  .reveal-topbar, .reveal-footer { margin-inline: 16px; }
+  .reveal-stage { padding-inline: 8vw; }
+  .portrait-stage { width: min(58vw, 36vh, 580px); }
+  .final-headline { font-size: clamp(38px, min(10vw, 8.8vh), 110px); }
+  .transfer-copy .player-name { font-size: clamp(32px, min(9vw, 7vh), 96px); }
+  .transfer-copy .buying-statement {
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 999px;
+  }
+  .buying-statement .buying-team-name {
+    font-size: clamp(20px, 4.5vw, 36px);
+  }
+  .buying-statement .buying-fee-amount {
+    font-size: clamp(20px, 4.5vw, 36px);
+  }
+  .reveal-footer span:first-child { display: none; }
+  .reveal-footer span:last-child { text-align: center; width: 100%; }
+}
+
+@media (max-width: 650px) {
+  .transfer-copy .buying-statement {
+    white-space: normal;
+    flex-wrap: wrap;
+    border-radius: 20px;
+    padding: 8px 14px;
+    gap: 6px 12px;
+  }
+  .buying-statement .buying-divider {
+    display: none;
+  }
+}
+
+@media (max-width: 500px) {
+  .reveal-topbar, .reveal-footer { margin-inline: 12px; }
+  .transfer-brand svg { width: 30px; }
+  .transfer-brand strong { font-size: 18px; }
+  .transfer-brand small { font-size: 8px; margin-top: 3px; }
+  .reveal-demo-tag { font-size: 8px; padding: 6px 8px; }
+  .reveal-actions { gap: 6px; }
+  .reveal-control { min-height: 34px; padding: 0 10px; font-size: 9px; }
+  .reveal-control svg { width: 14px; height: 14px; }
+  .reveal-topbar { height: 56px; min-height: 56px; }
+  .reveal-footer { min-height: 40px; font-size: 9px; }
+  .deal-badge { font-size: 11px; padding: 6px 10px; }
+  .fee-line, .player-meta-tag { font-size: 10px; gap: 8px; }
+}
+
+/* ── Neo-Brutalist Sports Login Screen ── */
+.login-app {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--blue, #1a42e3);
+  color: var(--ink, #0c1949);
+  font-family: var(--body, 'DM Sans', Arial, sans-serif);
+}
+
+.login-app .topbar {
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px clamp(24px, 3.2vw, 50px);
+  background: var(--navy, #09143f);
+  border-bottom: 3px solid var(--yellow, #efff00);
+  color: white;
+}
+
+.login-app .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  color: #fff;
+}
+
+.login-app .brand svg {
+  width: 42px;
+  height: 47px;
+  display: block;
+  flex: none;
+}
+
+.login-app .brand-name {
+  display: block;
+  font: 800 28px/.87 var(--display, 'Barlow Condensed', sans-serif);
+  letter-spacing: .025em;
+  white-space: nowrap;
+}
+
+.login-app .brand-meta {
+  display: block;
+  margin-top: 5px;
+  color: #b9c9ff;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.login-app .header-tag {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #c3d0ff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.login-app .header-tag::before {
+  content: '';
+  display: block;
+  width: 18px;
+  height: 3px;
+  background: var(--yellow, #efff00);
+  transform: skewX(-24deg);
+}
+
+.login-app .page {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 22px;
+  padding: clamp(24px, 3.8vh, 44px) clamp(24px, 3.1vw, 48px) 23px;
+  overflow: hidden;
+}
+
+.login-app .page:before,
+.login-app .page:after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.login-app .page:before {
+  inset: -35% 5% -35% 54%;
+  background: rgba(76, 116, 255, .23);
+  transform: skewX(-32deg);
+}
+
+.login-app .page:after {
+  width: 300px;
+  height: 300px;
+  right: -165px;
+  top: 15%;
+  border: 30px solid rgba(139, 164, 255, .12);
+  transform: rotate(45deg);
+}
+
+.login-app .layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(400px, .92fr);
+  gap: clamp(24px, 3vw, 50px);
+  align-items: stretch;
+  flex: 1;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.login-app .hero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-width: 0;
+  min-height: 610px;
+  overflow: hidden;
+  border: 2px solid var(--navy, #09143f);
+  background: #0a1a55;
+  color: white;
+  box-shadow: 6px 6px 0 rgba(6, 16, 55, .95);
+}
+
+.login-app .hero-image,
+.login-app .hero-shade,
+.login-app .hero-shape,
+.login-app .pitch-art {
+  position: absolute;
+  pointer-events: none;
+}
+
+.login-app .hero-image {
+  inset: 0;
+  z-index: -3;
+  background-image: url("/images/stadium-login.jpg");
+  background-size: cover;
+  background-position: center;
+}
+
+.login-app .hero-shade {
+  inset: 0;
+  z-index: -2;
+  background: linear-gradient(90deg, rgba(5, 15, 53, .91) 2%, rgba(7, 22, 76, .74) 56%, rgba(14, 35, 115, .48)),
+              linear-gradient(0deg, rgba(5, 14, 50, .93), transparent 70%);
+}
+
+.login-app .hero-shape {
+  z-index: -1;
+  top: -16%;
+  right: -18%;
+  height: 140%;
+  width: 49%;
+  transform: skewX(-19deg);
+  background: linear-gradient(180deg, rgba(59, 99, 255, .45), rgba(26, 62, 225, .16));
+  border-left: 2px solid rgba(130, 160, 255, .24);
+}
+
+.login-app .pitch-art {
+  width: 43%;
+  height: auto;
+  right: 4%;
+  top: 23%;
+  opacity: .16;
+  z-index: -1;
+}
+
+.login-app .hero-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: clamp(32px, 3.6vw, 54px);
+}
+
+.login-app .hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  background: var(--navy, #09143f);
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.login-app .hero-kicker:before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  background: var(--yellow, #efff00);
+  flex: none;
+}
+
+.login-app .hero-copy {
+  max-width: 640px;
+  margin: auto 0;
+  padding: 40px 0;
+}
+
+.login-app .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #d3ddff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .17em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.login-app .eyebrow:before {
+  content: '';
+  width: 27px;
+  height: 3px;
+  background: var(--yellow, #efff00);
+  transform: skewX(-25deg);
+  flex: none;
+}
+
+.login-app .hero-title {
+  margin: 20px 0 21px;
+  font: 800 clamp(70px, 6.4vw, 104px)/.85 var(--display, 'Barlow Condensed', sans-serif);
+  letter-spacing: -.015em;
+  text-transform: uppercase;
+  text-shadow: 0 4px 20px rgba(2, 10, 43, .3);
+}
+
+.login-app .hero-title span {
+  display: block;
+}
+
+.login-app .hero-title .accent {
+  color: var(--yellow, #efff00);
+}
+
+.login-app .hero-desc {
+  max-width: 350px;
+  margin: 0;
+  color: #dce5ff;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.login-app .hero-bottom {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid rgba(200, 216, 255, .3);
+  padding-top: 20px;
+}
+
+.login-app .hero-bottom-label {
+  color: #b9ccff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .15em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.login-app .sport-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.login-app .sport-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid rgba(160, 184, 255, .50);
+  background: rgba(7, 18, 65, .63);
+  color: #eff3ff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.login-app .sport-tag svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  color: var(--yellow, #efff00);
+  flex: none;
+}
+
+.login-app .panel-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 16px 4px;
+}
+
+.login-app .login-card {
+  width: 100%;
+  max-width: 500px;
+  border: 2px solid var(--navy, #09143f);
+  background: var(--paper, #fff);
+  box-shadow: 7px 7px 0 var(--navy, #09143f);
+}
+
+.login-app .card-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 47px;
+  padding: 0 32px;
+  border-bottom: 1px solid #c9d4f4;
+  background: #ecf1ff;
+  color: #4260ad;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.login-app .card-bar-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.login-app .card-bar-label:before {
+  content: '';
+  display: block;
+  width: 17px;
+  height: 4px;
+  background: var(--blue, #1a42e3);
+  transform: skewX(-25deg);
+}
+
+.login-app .card-bar-badge {
+  padding: 6px 8px;
+  background: var(--navy, #09143f);
+  color: white;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.login-app .card-main {
+  padding: 34px clamp(28px, 3vw, 40px) 31px;
+}
+
+.login-app .form-kicker {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #3152b8;
+  font-size: 10px;
+  line-height: 1.4;
+  font-weight: 800;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+
+.login-app .form-kicker:before {
+  content: '';
+  width: 22px;
+  height: 4px;
+  background: var(--yellow, #efff00);
+  border-left: 3px solid var(--blue, #1a42e3);
+  transform: skewX(-25deg);
+}
+
+.login-app .form-title {
+  margin: 14px 0 8px;
+  font: 800 clamp(49px, 4vw, 64px)/.93 var(--display, 'Barlow Condensed', sans-serif);
+  letter-spacing: -.012em;
+  text-transform: uppercase;
+  color: var(--navy, #09143f);
+}
+
+.login-app .form-title span {
+  color: var(--blue, #1a42e3);
+}
+
+.login-app .form-subtitle {
+  margin: 0;
+  color: #506394;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.login-app .signin-form {
+  margin-top: 30px;
+}
+
+.login-app .field-group {
+  margin-bottom: 21px;
+}
+
+.login-app .label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+.login-app label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .11em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: #1d316a;
+}
+
+.login-app .field-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 14px;
+  border: 1px solid #b6c5ea;
+  background: #f8faff;
+  transition: border-color .18s, box-shadow .18s;
+}
+
+.login-app .field-control:focus-within {
+  border-color: #1741d9;
+  box-shadow: 0 0 0 3px rgba(36, 77, 225, .18);
+}
+
+.login-app .field-control.is-invalid {
+  border-color: #b93838;
+  box-shadow: 0 0 0 3px rgba(185, 56, 56, .11);
+}
+
+.login-app .field-icon {
+  display: block;
+  width: 19px;
+  height: 19px;
+  color: #5973b2;
+  flex: none;
+}
+
+.login-app .field-control input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0d1b4c;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.login-app .field-control input::placeholder {
+  color: #60749c !important;
+  font-weight: 500;
+  opacity: 1;
+}
+
+.login-app .field-control input:focus-visible {
+  outline: 0;
+}
+
+.login-app .password-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 51px;
+  min-height: 38px;
+  margin-right: -6px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #34519b;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.login-app .password-toggle:hover,
+.login-app .forgot:hover {
+  color: #173de1;
+}
+
+.login-app .password-toggle svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+}
+
+.login-app .forgot {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #284ea9;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.5;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.login-app .forgot:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.login-app .field-error {
+  display: block;
+  margin: 7px 0 0;
+  color: #a52525;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.login-app .submit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 56px;
+  margin-top: 26px;
+  padding: 0 17px 0 20px;
+  border: 2px solid var(--navy, #09143f);
+  background: var(--yellow, #efff00);
+  color: var(--navy, #09143f);
+  box-shadow: 4px 4px 0 var(--navy, #09143f);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-align: left;
+  text-transform: uppercase;
+  transition: background .15s, transform .15s, box-shadow .15s;
+  cursor: pointer;
+}
+
+.login-app .submit:hover {
+  background: #dfe900;
+}
+
+.login-app .submit:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--navy, #09143f);
+}
+
+.login-app .submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.login-app .submit svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
+}
+
+.login-app .form-message {
+  margin: 18px 0 0;
+  padding: 12px 13px;
+  border: 1px solid #9db5eb;
+  background: #edf3ff;
+  color: #173579;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.login-app .form-message.is-error {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.login-app .preview-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 26px;
+  padding-top: 19px;
+  border-top: 1px solid #d8e0f4;
+  color: #4d6190;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.login-app .preview-note svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: #5674bc;
+}
+
+.login-app .preview-note strong {
+  color: #2a4178;
+  font-weight: 800;
+}
+
+.login-app .page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  color: #dbe4ff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .11em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.login-app .page-footer strong {
+  color: var(--yellow, #efff00);
+  font: 800 14px/1 var(--display, 'Barlow Condensed', sans-serif);
+  letter-spacing: .03em;
+}
+
+.login-app .page-footer span:last-child {
+  text-align: right;
+}
+
+@media (max-width: 1000px) {
+  .login-app .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(380px, .95fr);
+    gap: 24px;
+  }
+  .login-app .hero-content {
+    padding: 34px;
+  }
+  .login-app .hero-title {
+    font-size: clamp(62px, 7.7vw, 84px);
+  }
+  .login-app .hero-bottom-label {
+    display: none;
+  }
+  .login-app .card-main {
+    padding-inline: 30px;
+  }
+}
+
+@media (max-width: 760px) {
+  .login-app .topbar {
+    min-height: 63px;
+    padding: 8px 20px;
+  }
+  .login-app .brand svg {
+    width: 36px;
+    height: 40px;
+  }
+  .login-app .brand-name {
+    font-size: 24px;
+  }
+  .login-app .brand-meta {
+    font-size: 7px;
+  }
+  .login-app .header-tag {
+    font-size: 9px;
+  }
+  .login-app .header-tag:before {
+    width: 14px;
+  }
+  .login-app .page {
+    gap: 21px;
+    padding: 18px 18px 22px;
+  }
+  .login-app .layout {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .login-app .hero {
+    min-height: 0;
+    box-shadow: 4px 4px 0 var(--navy, #09143f);
+  }
+  .login-app .hero-content {
+    padding: 20px 24px 16px;
+  }
+  .login-app .hero-kicker {
+    padding: 7px 9px;
+    font-size: 8px;
+  }
+  .login-app .hero-copy {
+    margin: 0;
+    padding: 17px 0 14px;
+  }
+  .login-app .eyebrow {
+    font-size: 9px;
+  }
+  .login-app .hero-title {
+    font-size: clamp(46px, 10.8vw, 64px);
+    margin: 12px 0 0;
+    line-height: .86;
+  }
+  .login-app .hero-desc {
+    display: none;
+  }
+  .login-app .hero-bottom {
+    padding-top: 10px;
+  }
+  .login-app .hero-bottom-label {
+    display: none;
+  }
+  .login-app .sport-tag {
+    min-height: 26px;
+    padding: 0 7px;
+    font-size: 8px;
+  }
+  .login-app .sport-tag svg {
+    width: 12px;
+    height: 12px;
+  }
+  .login-app .pitch-art {
+    width: 40%;
+    right: 5%;
+    top: 28%;
+  }
+  .login-app .panel-area {
+    padding: 0 4px 0 0;
+  }
+  .login-app .login-card {
+    max-width: none;
+    box-shadow: 4px 4px 0 var(--navy, #09143f);
+  }
+  .login-app .card-bar {
+    min-height: 39px;
+    padding-inline: 23px;
+    font-size: 9px;
+  }
+  .login-app .card-main {
+    padding: 25px 24px 23px;
+  }
+  .login-app .form-title {
+    font-size: 48px;
+    margin: 11px 0 6px;
+  }
+  .login-app .form-subtitle {
+    font-size: 13px;
+  }
+  .login-app .signin-form {
+    margin-top: 24px;
+  }
+  .login-app .field-group {
+    margin-bottom: 17px;
+  }
+  .login-app .field-control {
+    height: 53px;
+  }
+  .login-app .submit {
+    margin-top: 21px;
+    min-height: 53px;
+  }
+  .login-app .preview-note {
+    margin-top: 22px;
+    padding-top: 15px;
+  }
+  .login-app .page-footer {
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-app .header-tag {
+    display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .login-app .topbar {
+    padding-inline: 16px;
+  }
+  .login-app .page {
+    padding-inline: 14px;
+  }
+  .login-app .hero-content {
+    padding-inline: 20px;
+  }
+  .login-app .hero-title {
+    font-size: 44px;
+  }
+  .login-app .card-main {
+    padding-inline: 20px;
+  }
+  .login-app .card-bar {
+    padding-inline: 20px;
+  }
+  .login-app .form-title {
+    font-size: 39px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-app,
+  .login-app * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
+

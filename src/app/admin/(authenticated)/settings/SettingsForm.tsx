@@ -486,7 +486,7 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
                     />
                   </div>
                   <p className="field-help" id="minSquadHelp">
-                    Enforces reserve purse for remaining slots.
+                    Minimum players a team must acquire. Reserves budget: (Min Squad − 1 − Current Players) × Min Base Price so teams never run out of funds to fill required squad slots. Set to 0 if your tournament allows teams to spend their purse freely without slot reservations.
                   </p>
                   {fieldErrors.minSquad && (
                     <span className="field-error" id="minSquadError">
@@ -559,7 +559,7 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
                     />
                   </div>
                   <p className="field-help" id="minBaseHelp">
-                    Floor used in the reserve purse formula.
+                    Minimum price reserved per remaining empty squad slot in the purse formula.
                   </p>
                   {fieldErrors.minBase && (
                     <span className="field-error" id="minBaseError">

@@ -23,6 +23,7 @@ export default async function AuctionPage() {
 
   const soldPlayers      = allPlayers.filter((p) => p.status === 'sold');
   const availablePlayers = allPlayers.filter((p) => p.status === 'available');
+  const unsoldPlayers    = allPlayers.filter((p) => p.status === 'unsold');
 
   const currentPlayer = auctionState?.current_player_id
     ? allPlayers.find((p) => p.id === auctionState.current_player_id) ?? null
@@ -59,6 +60,7 @@ export default async function AuctionPage() {
       auctionState={auctionState}
       currentPlayer={currentPlayer}
       availablePlayers={availablePlayers}
+      unsoldPlayers={unsoldPlayers}
       auctionTeams={auctionTeams}
       recentLog={recentLog}
       nextMinBid={nextMinBid}

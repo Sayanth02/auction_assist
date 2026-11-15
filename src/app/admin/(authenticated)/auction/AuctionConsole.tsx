@@ -8,6 +8,7 @@ import {
   markUnsold,
   undoLast,
   resetAuction,
+  requeueUnsoldPlayers,
 } from '@/app/actions/auction';
 import { unsellPlayer } from '@/app/actions/players';
 import type {
@@ -24,6 +25,7 @@ interface Props {
   auctionState: AuctionState;
   currentPlayer: Player | null;
   availablePlayers: Player[];
+  unsoldPlayers?: Player[];
   auctionTeams: AuctionTeam[];
   recentLog: BidLog[];
   nextMinBid: number | null;
@@ -62,6 +64,7 @@ export default function AuctionConsole({
   auctionState,
   currentPlayer,
   availablePlayers,
+  unsoldPlayers,
   auctionTeams,
   recentLog,
   nextMinBid,
@@ -69,6 +72,17 @@ export default function AuctionConsole({
   teamMap,
 }: Props) {
   const [isPending, startTransition] = useTransition();
+
+  const unsoldList = useMemo(() => unsoldPlayers ?? [], [unsoldPlayers]);
+  const [selectedPoolTab, setSelectedPoolTab] = useState<'available' | 'unsold' | null>(null);
+
+  // Derive active pool tab: defaults to 'available' if available players exist,
+  // automatically falls back to 'unsold' when available pool is empty.
+  const poolTab: 'available' | 'unsold' = useMemo(() => {
+    if (selectedPoolTab === 'unsold' && unsoldList.length > 0) return 'unsold';
+    if (selectedPoolTab === 'available' && availablePlayers.length > 0) return 'available';
+    return availablePlayers.length === 0 && unsoldList.length > 0 ? 'unsold' : 'available';
+  }, [selectedPoolTab, availablePlayers.length, unsoldList.length]);
 
   // Toast state
   const [toast, setToast] = useState<{ message: string; isError?: boolean } | null>(null);
@@ -85,14 +99,19 @@ export default function AuctionConsole({
 
   // Track per-team custom jump input values: { [teamId]: string }
   const [teamCustomInputs, setTeamCustomInputs] = useState<Record<string, string>>({});
+  const [prevBidKey, setPrevBidKey] = useState(
+    `${nextMinBid}-${auctionState.current_bid}-${auctionState.current_player_id}`
+  );
+  const currentBidKey = `${nextMinBid}-${auctionState.current_bid}-${auctionState.current_player_id}`;
+
+  // Reset custom inputs when player or bid changes during render (React 19 pattern)
+  if (prevBidKey !== currentBidKey) {
+    setPrevBidKey(currentBidKey);
+    setTeamCustomInputs({});
+  }
 
   // Manual player search query when idle
   const [playerSearch, setPlayerSearch] = useState('');
-
-  // Reset custom inputs when player or bid changes
-  useEffect(() => {
-    setTeamCustomInputs({});
-  }, [nextMinBid, auctionState.current_bid, auctionState.current_player_id]);
 
   // Toast auto-dismiss timer
   useEffect(() => {
@@ -130,8 +149,23 @@ export default function AuctionConsole({
 
   const leaderTeam = useMemo(() => {
     if (!auctionState.leading_team_id) return null;
-    return auctionTeams.find((t) => t.id === auctionState.leading_team_id) ?? null;
-  }, [auctionState.leading_team_id, auctionTeams]);
+    return (
+      auctionTeams.find((t) => t.id === auctionState.leading_team_id) ||
+      (teamMap[auctionState.leading_team_id]
+        ? ({
+            id: auctionState.leading_team_id,
+            name: teamMap[auctionState.leading_team_id],
+            purse_total: 0,
+            created_at: '',
+            logo_url: null,
+            purse_remaining: 0,
+            squad_size: 0,
+            max_bid: 0,
+            can_bid: false,
+          } as AuctionTeam)
+        : null)
+    );
+  }, [auctionState.leading_team_id, auctionTeams, teamMap]);
 
   function showToast(message: string, isError = false) {
     setToast({ message, isError });
@@ -150,7 +184,7 @@ export default function AuctionConsole({
 
   /* ── Pick / Randomise player ── */
   function handlePickPlayer(playerId: string) {
-    const p = availablePlayers.find((x) => x.id === playerId);
+    const p = [...availablePlayers, ...unsoldList].find((x) => x.id === playerId);
     run(
       () => startPlayer(playerId),
       p ? `${p.name} called to the block!` : 'Player called to block.'
@@ -158,15 +192,33 @@ export default function AuctionConsole({
   }
 
   function handleRandomPlayer() {
-    if (availablePlayers.length === 0) {
-      showToast('No available players left in the pool.', true);
+    const pool = availablePlayers.length > 0 ? availablePlayers : unsoldList;
+    if (pool.length === 0) {
+      showToast('No available or unsold players left in the pool.', true);
       return;
     }
-    const idx = Math.floor(Math.random() * availablePlayers.length);
-    const chosen = availablePlayers[idx];
+    const idx = Math.floor(Math.random() * pool.length);
+    const chosen = pool[idx];
+    const isRound2 = availablePlayers.length === 0;
     run(
       () => startPlayer(chosen.id),
-      `🎲 Picked ${chosen.name} on the block!`
+      isRound2
+        ? `🎲 Round 2: Picked ${chosen.name} from Unsold Pool!`
+        : `🎲 Picked ${chosen.name} on the block!`
+    );
+  }
+
+  function handleRequeueUnsold() {
+    if (unsoldList.length === 0) {
+      showToast('No unsold players to re-queue.', true);
+      return;
+    }
+    run(
+      async () => {
+        const res = await requeueUnsoldPlayers();
+        return res.error ?? null;
+      },
+      `Successfully re-queued ${unsoldList.length} unsold player(s) for Round 2!`
     );
   }
 
@@ -271,17 +323,19 @@ export default function AuctionConsole({
     setTeamCustomInputs((prev) => ({ ...prev, [teamId]: value }));
   }
 
-  // Filter available players in manual mode
-  const filteredAvailablePlayers = useMemo(() => {
-    if (!playerSearch.trim()) return availablePlayers;
+  const activePoolList = poolTab === 'unsold' ? unsoldList : availablePlayers;
+
+  // Filter pool players in manual mode
+  const filteredPoolPlayers = useMemo(() => {
+    if (!playerSearch.trim()) return activePoolList;
     const q = playerSearch.toLowerCase();
-    return availablePlayers.filter(
+    return activePoolList.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         (p.position && p.position.toLowerCase().includes(q)) ||
         (p.category && p.category.toLowerCase().includes(q))
     );
-  }, [availablePlayers, playerSearch]);
+  }, [activePoolList, playerSearch]);
 
   const currentDisplayAmount = auctionState.current_bid ?? (currentPlayer?.base_price ?? settings.default_base_price);
 
@@ -467,42 +521,90 @@ export default function AuctionConsole({
           <div className="pool-selector-top">
             <div className="pool-selector-title">
               <span>PLAYER POOL</span>
-              <span className="text-xs bg-white/10 text-white px-2 py-0.5 rounded border border-white/20">
-                {availablePlayers.length} AVAILABLE
-              </span>
+              <div className="pool-tabs">
+                <button
+                  type="button"
+                  className={`pool-tab ${poolTab === 'available' ? 'active' : ''}`}
+                  onClick={() => setSelectedPoolTab('available')}
+                >
+                  AVAILABLE ({availablePlayers.length})
+                </button>
+                <button
+                  type="button"
+                  className={`pool-tab unsold ${poolTab === 'unsold' ? 'active' : ''}`}
+                  onClick={() => setSelectedPoolTab('unsold')}
+                >
+                  UNSOLD / ROUND 2 ({unsoldList.length})
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-3 flex-wrap">
+              {unsoldList.length > 0 && (
+                <button
+                  type="button"
+                  className="requeue-unsold-btn"
+                  onClick={handleRequeueUnsold}
+                  disabled={isPending}
+                  title="Return all unsold players back into the active available pool"
+                >
+                  <span>🔄</span> RE-QUEUE ALL UNSOLD ({unsoldList.length})
+                </button>
+              )}
+
               <button
                 type="button"
                 className="random-pick-btn"
                 onClick={handleRandomPlayer}
-                disabled={isPending || availablePlayers.length === 0}
+                disabled={isPending || (availablePlayers.length === 0 && unsoldList.length === 0)}
               >
-                <span>🎲</span> PICK RANDOM PLAYER
+                <span>🎲</span>{' '}
+                {availablePlayers.length === 0 && unsoldList.length > 0
+                  ? 'PICK RANDOM UNSOLD (ROUND 2)'
+                  : 'PICK RANDOM PLAYER'}
               </button>
 
               <input
                 type="text"
                 className="pool-search-input"
-                placeholder="Search by name, position..."
+                placeholder={poolTab === 'unsold' ? 'Search unsold players...' : 'Search by name, position...'}
                 value={playerSearch}
                 onChange={(e) => setPlayerSearch(e.target.value)}
               />
             </div>
           </div>
 
-          {availablePlayers.length === 0 ? (
-            <div className="text-center py-10 text-gray-300 font-bold text-sm">
-              All players have been auctioned! Check the teams and audit log below.
+          {availablePlayers.length === 0 && unsoldList.length > 0 && poolTab === 'unsold' && (
+            <div className="round-2-alert">
+              <div className="round-2-alert-content">
+                <span className="round-2-badge">ROUND 2</span>
+                <div>
+                  <div className="round-2-alert-title">
+                    Round 1 Pool Completed · {unsoldList.length} Unsold Player{unsoldList.length > 1 ? 's' : ''} Ready
+                  </div>
+                  <div className="round-2-alert-desc">
+                    These players went unsold in Round 1. You can call them to the block individually, use random pick, or click &quot;Re-queue All Unsold&quot; to restore them to the main pool.
+                  </div>
+                </div>
+              </div>
             </div>
-          ) : filteredAvailablePlayers.length === 0 ? (
+          )}
+
+          {activePoolList.length === 0 ? (
+            <div className="text-center py-10 text-gray-300 font-bold text-sm">
+              {poolTab === 'unsold'
+                ? 'No unsold players at this stage.'
+                : unsoldList.length > 0
+                ? 'All initial players have been auctioned! Switch to the Unsold tab above to start Round 2.'
+                : 'All players have been auctioned! Check the teams and audit log below.'}
+            </div>
+          ) : filteredPoolPlayers.length === 0 ? (
             <div className="text-center py-8 text-gray-300 font-bold text-sm">
-              No available players match &quot;{playerSearch}&quot;.
+              No {poolTab === 'unsold' ? 'unsold' : 'available'} players match &quot;{playerSearch}&quot;.
             </div>
           ) : (
             <div className="pool-grid">
-              {filteredAvailablePlayers.map((player) => (
+              {filteredPoolPlayers.map((player) => (
                 <div key={player.id} className="pool-player-card">
                   <div className="pool-player-left">
                     <div className="pool-player-avatar">
@@ -514,7 +616,14 @@ export default function AuctionConsole({
                       )}
                     </div>
                     <div className="min-w-0">
-                      <div className="pool-player-name">{player.name}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="pool-player-name">{player.name}</span>
+                        {player.status === 'unsold' && (
+                          <span className="pool-unsold-tag">
+                            ROUND 2
+                          </span>
+                        )}
+                      </div>
                       <div className="pool-player-meta">
                         <span className="bg-slate-100 px-1 py-0.5 border border-slate-200">
                           {player.position || 'NS'}
@@ -943,7 +1052,7 @@ export default function AuctionConsole({
       )}
 
       {/* 2. MARK SOLD CONFIRMATION MODAL */}
-      {showSoldModal && leaderTeam && currentPlayer && (
+      {showSoldModal && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal">
             <div className="modal-top">
@@ -962,7 +1071,8 @@ export default function AuctionConsole({
 
             <h2>Confirm the sale?</h2>
             <p className="modal-desc">
-              Sell <strong>{currentPlayer.name}</strong> to <strong>{leaderTeam.name}</strong> for{' '}
+              Sell <strong>{currentPlayer?.name || 'Player'}</strong> to{' '}
+              <strong>{leaderTeam?.name || 'Winning Team'}</strong> for{' '}
               <strong>₹{(auctionState.current_bid ?? 0).toLocaleString('en-IN')}</strong>? This will finalize this signing and update the team purse.
             </p>
 
@@ -972,7 +1082,7 @@ export default function AuctionConsole({
                   <small>FINAL PRICE</small>
                   <strong>₹{(auctionState.current_bid ?? 0).toLocaleString('en-IN')}</strong>
                 </div>
-                <span>Sold to {leaderTeam.name}</span>
+                <span>Sold to {leaderTeam?.name || 'Winning Team'}</span>
               </div>
             </div>
 

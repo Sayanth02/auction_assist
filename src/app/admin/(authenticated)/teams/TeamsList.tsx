@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useActionState, useTransition, useRef } from 'react';
+import { useState, useActionState, useRef } from 'react';
 import { upsertTeam, deleteTeam } from '@/app/actions/teams';
 import type { Team, Settings } from '@/lib/supabase/types';
 import type { TeamStatsSummary } from './page';
