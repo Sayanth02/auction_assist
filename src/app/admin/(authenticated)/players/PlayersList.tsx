@@ -11,6 +11,10 @@ import {
   getInitials,
 } from '@/lib/player-constants';
 import { resizeImageToWebP } from '@/lib/image-util';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Toast } from '@/components/ui/Toast';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ImageWithFallback } from '@/components/ui/ImageWithFallback';
 
 interface Props {
   players: Player[];
@@ -24,7 +28,7 @@ interface ModalConfig {
   confirmText?: string;
   cancelText?: string;
   isDanger?: boolean;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
 
 function pad(n: number): string {
@@ -37,16 +41,12 @@ export default function PlayersList({ players, settings, teams = [] }: Props) {
   const [search, setSearch] = useState('');
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [modal, setModal] = useState<ModalConfig | null>(null);
+  const [modalPending, setModalPending] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; isError?: boolean } | null>(null);
-  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
 
   function triggerToast(text: string, isError = false) {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMessage({ text, isError });
-    toastTimerRef.current = setTimeout(() => {
-      setToastMessage(null);
-    }, 3800);
   }
 
   function handleOpenAdd() {
@@ -71,16 +71,21 @@ export default function PlayersList({ players, settings, teams = [] }: Props) {
       cancelText: 'Cancel',
       isDanger: true,
       onConfirm: async () => {
-        if (editing && typeof editing === 'object' && editing.id === player.id) {
-          setEditing(null);
+        setModalPending(true);
+        try {
+          if (editing && typeof editing === 'object' && editing.id === player.id) {
+            setEditing(null);
+          }
+          const err = await deletePlayer(player.id);
+          if (err) {
+            triggerToast(err, true);
+          } else {
+            triggerToast(`${player.name} removed from roster.`);
+            setModal(null);
+          }
+        } finally {
+          setModalPending(false);
         }
-        const err = await deletePlayer(player.id);
-        if (err) {
-          triggerToast(err, true);
-        } else {
-          triggerToast(`${player.name} removed from roster.`);
-        }
-        setModal(null);
       },
     });
   }
@@ -98,22 +103,27 @@ export default function PlayersList({ players, settings, teams = [] }: Props) {
       cancelText: 'Cancel',
       isDanger: false,
       onConfirm: async () => {
-        const err = await unsellPlayer(player.id);
-        if (err) {
-          triggerToast(err, true);
-        } else {
-          triggerToast(
-            isSold
-              ? `Sale for "${player.name}" has been undone.`
-              : `"${player.name}" is now available for auction.`
-          );
+        setModalPending(true);
+        try {
+          const err = await unsellPlayer(player.id);
+          if (err) {
+            triggerToast(err, true);
+          } else {
+            triggerToast(
+              isSold
+                ? `Sale for "${player.name}" has been undone.`
+                : `"${player.name}" is now available for auction.`
+            );
+            setModal(null);
+          }
+        } finally {
+          setModalPending(false);
         }
-        setModal(null);
       },
     });
   }
 
-  const tournamentName = settings?.tournament_name || 'VSL SEASON 04';
+  const tournamentName = settings?.tournament_name || '';
   const query = search.trim().toLowerCase();
 
   const filtered = players.filter((p) => {
@@ -130,7 +140,13 @@ export default function PlayersList({ players, settings, teams = [] }: Props) {
       <div className="players-page-header">
         <div>
           <div className="eyebrow">
-            {tournamentName.toUpperCase()} <span style={{ opacity: 0.55 }}>/</span> PLAYER MANAGEMENT
+            {tournamentName ? (
+              <>
+                {tournamentName.toUpperCase()}{' '}
+                <span style={{ opacity: 0.55 }}>/</span>{' '}
+              </>
+            ) : null}
+            PLAYER MANAGEMENT
           </div>
           <h1 className="page-heading">
             The players<span className="text-[var(--yellow)]">.</span>
@@ -245,33 +261,33 @@ export default function PlayersList({ players, settings, teams = [] }: Props) {
           ))}
         </section>
       ) : (
-        /* Empty State */
-        <div className="manage-empty" id="playersEmpty">
-          <h3 id="playersEmptyTitle">
-            {query ? 'No players found.' : 'No players yet.'}
-          </h3>
-          <p id="playersEmptyText">
-            {query
-              ? 'Try searching for another name, position or category.'
-              : 'Start by adding your first player to the auction roster.'}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              if (query) setSearch('');
-              else handleOpenAdd();
-            }}
-            id="playersEmptyAction"
-          >
-            {query ? 'Clear search' : '+ Add player'}
-          </button>
-        </div>
+        <EmptyState
+          title={query ? 'No players found' : 'No players registered'}
+          description={
+            query
+              ? `No players match "${search}". Try searching for another name, position, or category.`
+              : 'There are no players in the auction roster yet. Start by adding your first player or importing a CSV.'
+          }
+          className="my-6"
+          action={
+            <button
+              type="button"
+              className="players-add-primary"
+              onClick={() => {
+                if (query) setSearch('');
+                else handleOpenAdd();
+              }}
+            >
+              {query ? 'Clear search' : '+ Add player'}
+            </button>
+          }
+        />
       )}
 
       {/* ── Footer Branding Note ── */}
       <footer className="footer mt-6">
         <div>
-          <strong>VSL</strong> SEASON 04 / PLAYER MANAGEMENT
+          <strong>{tournamentName || 'AUCTION ASSIST'}</strong> / PLAYER MANAGEMENT
         </div>
         <div className="footer-note">ROSTER READY · PUBLIC STORAGE BRANDING</div>
       </footer>
@@ -290,51 +306,29 @@ export default function PlayersList({ players, settings, teams = [] }: Props) {
 
       {/* ── Confirmation Modal ── */}
       {modal && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-          <div className="modal">
-            <div className="modal-top">
-              <span className="modal-eyebrow">CONFIRM ACTION</span>
-              <button
-                type="button"
-                onClick={() => setModal(null)}
-                className="modal-close"
-                aria-label="Close dialog"
-              >
-                <IconClose />
-              </button>
-            </div>
-            <h2 id="modalTitle">{modal.title}</h2>
-            <p className="modal-desc">{modal.description}</p>
-            <div className="modal-actions">
-              <button
-                type="button"
-                onClick={() => setModal(null)}
-                className="modal-btn cancel"
-              >
-                {modal.cancelText || 'Cancel'}
-              </button>
-              <button
-                type="button"
-                onClick={modal.onConfirm}
-                className={`modal-btn confirm ${modal.isDanger ? 'bg-[#b63e46] text-white hover:bg-[#8f272e]' : ''}`}
-              >
-                {modal.confirmText || 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          isOpen={true}
+          eyebrow={`${tournamentName ? tournamentName.toUpperCase() + ' · ' : ''}ROSTER MANAGEMENT`}
+          title={modal.title}
+          description={modal.description}
+          confirmText={modal.confirmText || 'Confirm'}
+          cancelText={modal.cancelText || 'Cancel'}
+          isDanger={modal.isDanger}
+          isPending={modalPending}
+          pendingText="Processing…"
+          onConfirm={modal.onConfirm}
+          onClose={() => {
+            if (!modalPending) setModal(null);
+          }}
+        />
       )}
 
       {/* ── Floating Toast Notification ── */}
-      {toastMessage && (
-        <div
-          className={`toast show ${toastMessage.isError ? 'error' : ''}`}
-          role="status"
-          aria-live="polite"
-        >
-          {toastMessage.text}
-        </div>
-      )}
+      <Toast
+        message={toastMessage?.text ?? null}
+        isError={toastMessage?.isError}
+        onDismiss={() => setToastMessage(null)}
+      />
     </div>
   );
 }
@@ -368,8 +362,12 @@ function PlayerCard({
         <span className="player-position-tag">{posCode}</span>
         <div className="player-portrait" aria-label={`${player.name} photo`}>
           {player.photo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={player.photo_url} alt={player.name} />
+            <ImageWithFallback
+              src={player.photo_url}
+              alt={player.name}
+              className="w-full h-full object-cover"
+              fallbackText={getInitials(player.name)}
+            />
           ) : (
             <span className="player-portrait-fallback" aria-hidden="true">
               {getInitials(player.name)}
@@ -820,8 +818,12 @@ function PlayerFormPanel({
             <div className="player-photo-picker">
               <div className="player-portrait player-form-portrait" id="playersPhotoPreview">
                 {previewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={previewUrl} alt="Preview portrait" />
+                  <ImageWithFallback
+                    src={previewUrl}
+                    alt="Preview portrait"
+                    className="w-full h-full object-cover"
+                    fallbackText={getInitials(name || 'Player')}
+                  />
                 ) : (
                   <span className="player-portrait-fallback">
                     {getInitials(name || 'Player')}

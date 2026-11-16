@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useTransition, useEffect, useMemo } from 'react';
+import React, { useState, useTransition, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   startPlayer,
   placeBid,
@@ -19,6 +20,11 @@ import type {
   Settings,
 } from '@/lib/supabase/types';
 import { getInitials } from '@/lib/player-constants';
+import { createClient } from '@/lib/supabase/client';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Toast } from '@/components/ui/Toast';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ImageWithFallback } from '@/components/ui/ImageWithFallback';
 
 interface Props {
   settings: Settings;
@@ -59,6 +65,12 @@ function formatTime(isoStr?: string) {
   }
 }
 
+function getRandomPoolItem<T>(pool: T[]): T | null {
+  if (pool.length === 0) return null;
+  const idx = Math.floor(Math.random() * pool.length);
+  return pool[idx];
+}
+
 export default function AuctionConsole({
   settings,
   auctionState,
@@ -71,7 +83,9 @@ export default function AuctionConsole({
   playerMap,
   teamMap,
 }: Props) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const isSubmittingRef = useRef(false);
 
   const unsoldList = useMemo(() => unsoldPlayers ?? [], [unsoldPlayers]);
   const [selectedPoolTab, setSelectedPoolTab] = useState<'available' | 'unsold' | null>(null);
@@ -96,6 +110,12 @@ export default function AuctionConsole({
   const [showSoldModal, setShowSoldModal] = useState(false);
   const [showUnsoldModal, setShowUnsoldModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showUndoModal, setShowUndoModal] = useState(false);
+  const [unsellModal, setUnsellModal] = useState<{
+    isOpen: boolean;
+    playerId: string;
+    playerName: string;
+  } | null>(null);
 
   // Track per-team custom jump input values: { [teamId]: string }
   const [teamCustomInputs, setTeamCustomInputs] = useState<Record<string, string>>({});
@@ -153,16 +173,16 @@ export default function AuctionConsole({
       auctionTeams.find((t) => t.id === auctionState.leading_team_id) ||
       (teamMap[auctionState.leading_team_id]
         ? ({
-            id: auctionState.leading_team_id,
-            name: teamMap[auctionState.leading_team_id],
-            purse_total: 0,
-            created_at: '',
-            logo_url: null,
-            purse_remaining: 0,
-            squad_size: 0,
-            max_bid: 0,
-            can_bid: false,
-          } as AuctionTeam)
+          id: auctionState.leading_team_id,
+          name: teamMap[auctionState.leading_team_id],
+          purse_total: 0,
+          created_at: '',
+          logo_url: null,
+          purse_remaining: 0,
+          squad_size: 0,
+          max_bid: 0,
+          can_bid: false,
+        } as AuctionTeam)
         : null)
     );
   }, [auctionState.leading_team_id, auctionTeams, teamMap]);
@@ -171,16 +191,49 @@ export default function AuctionConsole({
     setToast({ message, isError });
   }
 
-  function run(fn: () => Promise<string | null>, successMsg?: string) {
+  function run(fn: () => Promise<string | null>, successMsg?: string, onSuccess?: () => void) {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     startTransition(async () => {
-      const err = await fn();
-      if (err) {
-        showToast(err, true);
-      } else if (successMsg) {
-        showToast(successMsg);
+      try {
+        const err = await fn();
+        if (err) {
+          showToast(err, true);
+        } else {
+          if (successMsg) {
+            showToast(successMsg);
+          }
+          onSuccess?.();
+        }
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : 'An unexpected error occurred.', true);
+      } finally {
+        isSubmittingRef.current = false;
       }
     });
   }
+
+  // Realtime subscription to keep multi-tab admin views in sync
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel('admin_auction_console_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'auction_state' },
+        () => {
+          const hasActiveCustomInputs = Object.values(teamCustomInputs).some((v) => v.trim() !== '');
+          if (!hasActiveCustomInputs && !isSubmittingRef.current) {
+            router.refresh();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [router, teamCustomInputs]);
 
   /* ── Pick / Randomise player ── */
   function handlePickPlayer(playerId: string) {
@@ -193,12 +246,11 @@ export default function AuctionConsole({
 
   function handleRandomPlayer() {
     const pool = availablePlayers.length > 0 ? availablePlayers : unsoldList;
-    if (pool.length === 0) {
+    const chosen = getRandomPoolItem(pool);
+    if (!chosen) {
       showToast('No available or unsold players left in the pool.', true);
       return;
     }
-    const idx = Math.floor(Math.random() * pool.length);
-    const chosen = pool[idx];
     const isRound2 = availablePlayers.length === 0;
     run(
       () => startPlayer(chosen.id),
@@ -233,7 +285,6 @@ export default function AuctionConsole({
 
   /* ── Sold / Unsold / Undo ── */
   function handleConfirmSold() {
-    setShowSoldModal(false);
     if (!leaderTeam) {
       showToast('No leading bid to mark sold.', true);
       return;
@@ -241,51 +292,59 @@ export default function AuctionConsole({
     const soldPrice = auctionState.current_bid ?? 0;
     run(
       () => markSold(),
-      `${currentPlayer?.name || 'Player'} sold to ${leaderTeam.name} for ₹${soldPrice.toLocaleString('en-IN')}!`
+      `${currentPlayer?.name || 'Player'} sold to ${leaderTeam.name} for ₹${soldPrice.toLocaleString('en-IN')}!`,
+      () => setShowSoldModal(false)
     );
   }
 
   function handleConfirmUnsold() {
-    setShowUnsoldModal(false);
     run(
       () => markUnsold(),
-      currentPlayer ? `${currentPlayer.name} marked UNSOLD.` : 'Marked unsold.'
+      currentPlayer ? `${currentPlayer.name} marked UNSOLD.` : 'Marked unsold.',
+      () => setShowUnsoldModal(false)
     );
   }
 
   function handleUndo() {
+    setShowUndoModal(true);
+  }
+
+  function handleConfirmUndo() {
     const actionType = lastNonUndo?.type;
     const pName = lastNonUndo ? playerMap[lastNonUndo.player_id] : null;
     const msg = actionType === 'sold'
       ? `Sale for ${pName || 'player'} undone. Player returned to bidding.`
       : actionType === 'unsold'
-      ? `Unsold status for ${pName || 'player'} undone. Player returned to bidding.`
-      : 'Last auction action undone.';
+        ? `Unsold status for ${pName || 'player'} undone. Player returned to bidding.`
+        : 'Last auction action undone.';
 
     run(
       () => undoLast(),
-      msg
+      msg,
+      () => setShowUndoModal(false)
     );
   }
 
   function handleUnsellSpecificPlayer(playerId: string, playerName: string) {
-    const confirmed = window.confirm(
-      `Are you sure you want to un-sell "${playerName}"?\n\nThis will remove them from their team, refund the team's purse, and make the player available for auction again.`
-    );
-    if (!confirmed) return;
+    setUnsellModal({ isOpen: true, playerId, playerName });
+  }
 
+  function handleConfirmUnsellPlayer() {
+    if (!unsellModal) return;
+    const { playerId, playerName } = unsellModal;
     run(
       () => unsellPlayer(playerId),
-      `Sale for "${playerName}" undone. Player is now available.`
+      `Sale for "${playerName}" undone. Player is now available.`,
+      () => setUnsellModal(null)
     );
   }
 
   /* ── Reset ── */
   function handleConfirmReset() {
-    setShowResetModal(false);
     run(
       () => resetAuction(),
-      'Auction has been completely reset.'
+      'Auction has been completely reset.',
+      () => setShowResetModal(false)
     );
   }
 
@@ -315,8 +374,12 @@ export default function AuctionConsole({
     if (!jumpModal.team || !jumpModal.amount) return;
     const teamId = jumpModal.team.id;
     const amount = jumpModal.amount;
-    setJumpModal({ isOpen: false, team: null, amount: 0 });
-    handleBid(teamId, amount);
+    const teamName = jumpModal.team.name;
+    run(
+      () => placeBid(teamId, amount),
+      `${teamName} placed a jump bid of ₹${amount.toLocaleString('en-IN')}`,
+      () => setJumpModal({ isOpen: false, team: null, amount: 0 })
+    );
   }
 
   function setCustomInputForTeam(teamId: string, value: string) {
@@ -381,8 +444,13 @@ export default function AuctionConsole({
       <div className="page-header">
         <div>
           <div className="eyebrow">
-            {settings.tournament_name || 'VSL SEASON 04'}{' '}
-            <span style={{ opacity: 0.55 }}>/</span> AUCTION ROOM
+            {settings.tournament_name ? (
+              <>
+                {settings.tournament_name.toUpperCase()}{' '}
+                <span style={{ opacity: 0.55 }}>/</span>{' '}
+              </>
+            ) : null}
+            AUCTION ROOM
           </div>
           <h1 className="page-heading">
             Auction console<span>.</span>
@@ -447,13 +515,13 @@ export default function AuctionConsole({
             </div>
           </div>
 
-          {/* Visual cutout or initials */}
+          {/* Player photograph with full background preserved */}
           {currentPlayer?.photo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <ImageWithFallback
               className="player-photo"
               src={currentPlayer.photo_url}
               alt={currentPlayer.name}
+              fallbackText={getInitials(currentPlayer.name)}
             />
           ) : currentPlayer ? (
             <div className="player-initials-crest">
@@ -591,17 +659,23 @@ export default function AuctionConsole({
           )}
 
           {activePoolList.length === 0 ? (
-            <div className="text-center py-10 text-gray-300 font-bold text-sm">
-              {poolTab === 'unsold'
-                ? 'No unsold players at this stage.'
-                : unsoldList.length > 0
-                ? 'All initial players have been auctioned! Switch to the Unsold tab above to start Round 2.'
-                : 'All players have been auctioned! Check the teams and audit log below.'}
-            </div>
+            <EmptyState
+              title={poolTab === 'unsold' ? 'No Unsold Players' : 'Initial Pool Completed'}
+              description={
+                poolTab === 'unsold'
+                  ? 'No players are currently marked as unsold.'
+                  : unsoldList.length > 0
+                  ? 'All initial players have been auctioned! Switch to the Unsold tab above to start Round 2.'
+                  : 'All players have been auctioned! Review club rosters and the activity log below.'
+              }
+              className="my-4"
+            />
           ) : filteredPoolPlayers.length === 0 ? (
-            <div className="text-center py-8 text-gray-300 font-bold text-sm">
-              No {poolTab === 'unsold' ? 'unsold' : 'available'} players match &quot;{playerSearch}&quot;.
-            </div>
+            <EmptyState
+              title="No Matching Players"
+              description={`No ${poolTab === 'unsold' ? 'unsold' : 'available'} players match "${playerSearch}".`}
+              className="my-4"
+            />
           ) : (
             <div className="pool-grid">
               {filteredPoolPlayers.map((player) => (
@@ -609,8 +683,12 @@ export default function AuctionConsole({
                   <div className="pool-player-left">
                     <div className="pool-player-avatar">
                       {player.photo_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={player.photo_url} alt={player.name} />
+                        <ImageWithFallback
+                          src={player.photo_url}
+                          alt={player.name}
+                          className="w-full h-full object-cover"
+                          fallbackText={getInitials(player.name)}
+                        />
                       ) : (
                         <span>{getInitials(player.name)}</span>
                       )}
@@ -684,76 +762,87 @@ export default function AuctionConsole({
 
       {/* ── TEAMS GRID & VERDICT CARD ── */}
       <section className="teams-grid" aria-label="Teams and auction controls">
-        {auctionTeams.map((team, index) => {
-          const isLeader = hasLeader && auctionState.leading_team_id === team.id;
-          const canBidMin = isBidding && nextMinBid !== null && nextMinBid <= team.max_bid && !isLeader;
-          const customVal = teamCustomInputs[team.id] ?? '';
-          const customNum = Number(customVal);
-          const isCustomValid = isBidding && !isPending && customVal.trim() !== '' && !isNaN(customNum) && customNum >= (nextMinBid ?? 0) && customNum <= team.max_bid;
-          const pal = CREST_PALETTES[index % CREST_PALETTES.length];
+        {auctionTeams.length === 0 ? (
+          <EmptyState
+            title="No Clubs Registered"
+            description="Register teams in the Teams tab before opening the bidding floor."
+            className="col-span-full my-4"
+          />
+        ) : (
+          auctionTeams.map((team, index) => {
+            const isLeader = hasLeader && auctionState.leading_team_id === team.id;
+            const canBidMin = isBidding && nextMinBid !== null && nextMinBid <= team.max_bid && !isLeader;
+            const customVal = teamCustomInputs[team.id] ?? '';
+            const customNum = Number(customVal);
+            const isCustomValid = isBidding && !isPending && customVal.trim() !== '' && !isNaN(customNum) && customNum >= (nextMinBid ?? 0) && customNum <= team.max_bid;
+            const pal = CREST_PALETTES[index % CREST_PALETTES.length];
 
-          return (
-            <article
-              key={team.id}
-              className={`team-card ${isLeader ? 'leading' : ''} ${!isBidding ? 'closed' : ''}`}
-            >
-              {/* Clickable Card Body for Minimum Bid */}
-              <button
-                type="button"
-                className="team-hit"
-                disabled={!canBidMin || isPending}
-                onClick={() => {
-                  if (canBidMin && nextMinBid !== null) {
-                    handleBid(team.id, nextMinBid);
-                  }
-                }}
-                aria-label={
-                  isBidding && nextMinBid !== null
-                    ? `Place minimum bid of ₹${nextMinBid.toLocaleString('en-IN')} for ${team.name}`
-                    : `Bidding closed for ${team.name}`
-                }
+            return (
+              <article
+                key={team.id}
+                className={`team-card ${isLeader ? 'leading' : ''} ${!isBidding ? 'closed' : ''}`}
               >
-                <span className="card-top">
-                  <span>CLUB {String(index + 1).padStart(2, '0')}</span>
-                  <span className={`team-state ${isLeader ? 'leader' : ''}`}>
-                    {isLeader
-                      ? 'LEADING'
-                      : !isBidding
-                      ? 'CLOSED'
-                      : team.max_bid >= (nextMinBid ?? 0)
-                      ? 'READY'
-                      : 'PURSE EXCEEDED'}
-                  </span>
-                </span>
-
-                <span className="club-row">
-                  <span className="club-crest">
-                    {team.logo_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={team.logo_url} alt={team.name} />
-                    ) : (
-                      <div
-                        className="w-full h-full flex items-center justify-center font-extrabold text-xs tracking-wider"
-                        style={{
-                          backgroundColor: pal.bg,
-                          color: pal.text,
-                          border: `2px solid ${pal.border}`,
-                          clipPath: 'polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%)',
-                          fontFamily: 'var(--display)',
-                          fontSize: '17px',
-                        }}
-                      >
-                        {getInitials(team.name)}
-                      </div>
-                    )}
-                  </span>
-                  <span className="club-info">
-                    <span className="club-name">{team.name}</span>
-                    <span className="club-squad">
-                      SQUAD <strong>{team.squad_size}</strong>
+                {/* Clickable Card Body for Minimum Bid */}
+                <button
+                  type="button"
+                  className="team-hit"
+                  disabled={!canBidMin || isPending}
+                  onClick={() => {
+                    if (canBidMin && nextMinBid !== null) {
+                      handleBid(team.id, nextMinBid);
+                    }
+                  }}
+                  aria-label={
+                    isBidding && nextMinBid !== null
+                      ? `Place minimum bid of ₹${nextMinBid.toLocaleString('en-IN')} for ${team.name}`
+                      : `Bidding closed for ${team.name}`
+                  }
+                >
+                  <span className="card-top">
+                    <span>CLUB {String(index + 1).padStart(2, '0')}</span>
+                    <span className={`team-state ${isLeader ? 'leader' : ''}`}>
+                      {isLeader
+                        ? 'LEADING'
+                        : !isBidding
+                        ? 'CLOSED'
+                        : team.max_bid >= (nextMinBid ?? 0)
+                        ? 'READY'
+                        : 'PURSE EXCEEDED'}
                     </span>
                   </span>
-                </span>
+
+                  <span className="club-row">
+                    <span className="club-crest">
+                      {team.logo_url ? (
+                        <ImageWithFallback
+                          src={team.logo_url}
+                          alt={team.name}
+                          className="w-full h-full object-contain"
+                          fallbackText={getInitials(team.name)}
+                        />
+                      ) : (
+                        <div
+                          className="w-full h-full flex items-center justify-center font-extrabold text-xs tracking-wider"
+                          style={{
+                            backgroundColor: pal.bg,
+                            color: pal.text,
+                            border: `2px solid ${pal.border}`,
+                            clipPath: 'polygon(0 0, 100% 0, 100% 70%, 50% 100%, 0 70%)',
+                            fontFamily: 'var(--display)',
+                            fontSize: '17px',
+                          }}
+                        >
+                          {getInitials(team.name)}
+                        </div>
+                      )}
+                    </span>
+                    <span className="club-info">
+                      <span className="club-name">{team.name}</span>
+                      <span className="club-squad">
+                        SQUAD <strong>{team.squad_size}</strong>
+                      </span>
+                    </span>
+                  </span>
 
                 <span className="club-metrics">
                   <span className="club-metric">
@@ -775,8 +864,8 @@ export default function AuctionConsole({
                     {isLeader
                       ? 'CURRENT LEADER'
                       : isBidding
-                      ? 'SELECT TO BID'
-                      : 'BIDDING CLOSED'}
+                        ? 'SELECT TO BID'
+                        : 'BIDDING CLOSED'}
                   </span>
                   <strong className="cue-price">
                     {isBidding && nextMinBid !== null
@@ -824,7 +913,7 @@ export default function AuctionConsole({
               </div>
             </article>
           );
-        })}
+        }))}
 
         {/* Verdict / Control Card */}
         <aside className="verdict-card" aria-label="Auction controls">
@@ -986,39 +1075,24 @@ export default function AuctionConsole({
       </section>
 
       {/* ── TOAST NOTIFICATION ── */}
-      <div
-        className={`toast ${toast ? 'show' : ''} ${toast?.isError ? 'error' : ''}`}
-        role="status"
-        aria-live="polite"
-      >
-        {toast?.message}
-      </div>
+      <Toast
+        message={toast?.message ?? null}
+        isError={toast?.isError}
+        onDismiss={() => setToast(null)}
+      />
 
-      {/* ── MODALS ── */}
+      {/* ── ACCESSIBLE CONFIRMATION MODALS ── */}
 
       {/* 1. JUMP BID CONFIRMATION MODAL */}
-      {jumpModal.isOpen && jumpModal.team && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <div className="modal-top">
-              <span className="modal-eyebrow">VSL SEASON 04 · CONFIRM JUMP BID</span>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setJumpModal({ isOpen: false, team: null, amount: 0 })}
-                aria-label="Close dialog"
-              >
-                <svg className="icon" aria-hidden="true">
-                  <use href="#i-x" />
-                </svg>
-              </button>
-            </div>
-
-            <h2>Place Jump Bid?</h2>
-            <p className="modal-desc">
-              Are you sure you want to place a direct jump bid for <strong>{jumpModal.team.name}</strong>?
+      <ConfirmDialog
+        isOpen={jumpModal.isOpen && !!jumpModal.team}
+        eyebrow={`${settings.tournament_name ? settings.tournament_name.toUpperCase() + ' · ' : ''}CONFIRM JUMP BID`}
+        title="Place Jump Bid?"
+        description={
+          <div>
+            <p className="mb-3">
+              Are you sure you want to place a direct jump bid for <strong>{jumpModal.team?.name}</strong>?
             </p>
-
             <div className="modal-extra">
               <div className="modal-score">
                 <div>
@@ -1030,52 +1104,28 @@ export default function AuctionConsole({
                 </div>
               </div>
             </div>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-btn cancel"
-                onClick={() => setJumpModal({ isOpen: false, team: null, amount: 0 })}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="modal-btn confirm"
-                onClick={handleConfirmCustomBid}
-              >
-                Confirm Jump Bid
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        }
+        confirmText="Confirm Jump Bid"
+        cancelText="Cancel"
+        isPending={isPending}
+        pendingText="Placing bid…"
+        onConfirm={handleConfirmCustomBid}
+        onClose={() => setJumpModal({ isOpen: false, team: null, amount: 0 })}
+      />
 
       {/* 2. MARK SOLD CONFIRMATION MODAL */}
-      {showSoldModal && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <div className="modal-top">
-              <span className="modal-eyebrow">VSL SEASON 04 · CONFIRM SALE</span>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setShowSoldModal(false)}
-                aria-label="Close dialog"
-              >
-                <svg className="icon" aria-hidden="true">
-                  <use href="#i-x" />
-                </svg>
-              </button>
-            </div>
-
-            <h2>Confirm the sale?</h2>
-            <p className="modal-desc">
+      <ConfirmDialog
+        isOpen={showSoldModal}
+        eyebrow={`${settings.tournament_name ? settings.tournament_name.toUpperCase() + ' · ' : ''}CONFIRM SALE`}
+        title="Confirm the sale?"
+        description={
+          <div>
+            <p className="mb-3">
               Sell <strong>{currentPlayer?.name || 'Player'}</strong> to{' '}
               <strong>{leaderTeam?.name || 'Winning Team'}</strong> for{' '}
               <strong>₹{(auctionState.current_bid ?? 0).toLocaleString('en-IN')}</strong>? This will finalize this signing and update the team purse.
             </p>
-
             <div className="modal-extra">
               <div className="modal-score">
                 <div>
@@ -1085,117 +1135,102 @@ export default function AuctionConsole({
                 <span>Sold to {leaderTeam?.name || 'Winning Team'}</span>
               </div>
             </div>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-btn cancel"
-                onClick={() => setShowSoldModal(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="modal-btn confirm"
-                style={{ background: 'var(--yellow)', color: 'var(--ink)' }}
-                onClick={handleConfirmSold}
-              >
-                Confirm Sold
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        }
+        confirmText="Confirm Sold"
+        cancelText="Cancel"
+        isPending={isPending}
+        pendingText="Finalizing sale…"
+        onConfirm={handleConfirmSold}
+        onClose={() => setShowSoldModal(false)}
+      />
 
       {/* 3. MARK UNSOLD CONFIRMATION MODAL */}
-      {showUnsoldModal && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <div className="modal-top">
-              <span className="modal-eyebrow">VSL SEASON 04 · MARK UNSOLD</span>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setShowUnsoldModal(false)}
-                aria-label="Close dialog"
-              >
-                <svg className="icon" aria-hidden="true">
-                  <use href="#i-x" />
-                </svg>
-              </button>
-            </div>
-
-            <h2>Mark as unsold?</h2>
-            <p className="modal-desc">
-              Close bidding and mark <strong>{currentPlayer?.name ?? 'this player'}</strong> as unsold?
-              {hasLeader ? ' This player currently has bids placed.' : ''}
-            </p>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-btn cancel"
-                onClick={() => setShowUnsoldModal(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="modal-btn confirm"
-                onClick={handleConfirmUnsold}
-              >
-                Mark Unsold
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={showUnsoldModal}
+        eyebrow={`${settings.tournament_name ? settings.tournament_name.toUpperCase() + ' · ' : ''}MARK UNSOLD`}
+        title="Mark as unsold?"
+        description={
+          <p>
+            Close bidding and mark <strong>{currentPlayer?.name ?? 'this player'}</strong> as unsold?
+            {hasLeader ? ' This player currently has bids placed.' : ''}
+          </p>
+        }
+        confirmText="Mark Unsold"
+        cancelText="Cancel"
+        isPending={isPending}
+        pendingText="Marking unsold…"
+        onConfirm={handleConfirmUnsold}
+        onClose={() => setShowUnsoldModal(false)}
+      />
 
       {/* 4. RESET AUCTION CONFIRMATION MODAL */}
-      {showResetModal && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal">
-            <div className="modal-top">
-              <span className="modal-eyebrow">VSL SEASON 04 · RESET AUCTION</span>
-              <button
-                type="button"
-                className="modal-close"
-                onClick={() => setShowResetModal(false)}
-                aria-label="Close dialog"
-              >
-                <svg className="icon" aria-hidden="true">
-                  <use href="#i-x" />
-                </svg>
-              </button>
-            </div>
-
-            <h2>Reset the auction?</h2>
-            <p className="modal-desc">
+      <ConfirmDialog
+        isOpen={showResetModal}
+        eyebrow={`${settings.tournament_name ? settings.tournament_name.toUpperCase() + ' · ' : ''}RESET AUCTION`}
+        title="Reset the auction?"
+        description={
+          <div>
+            <p>
               This clears all bid logs, resets sold players back to available status, restores all team purses to their starting budgets, and sets the auction state to idle.
-              <br />
-              <strong className="text-red-600 block mt-2">This action cannot be undone.</strong>
             </p>
-
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-btn cancel"
-                onClick={() => setShowResetModal(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="modal-btn confirm"
-                style={{ background: '#d93829', color: '#fff', borderColor: '#d93829' }}
-                onClick={handleConfirmReset}
-              >
-                Reset Auction
-              </button>
-            </div>
+            <p className="text-red-600 font-bold mt-2">
+              This action cannot be undone.
+            </p>
           </div>
-        </div>
-      )}
+        }
+        confirmText="Reset Auction"
+        cancelText="Cancel"
+        isDanger={true}
+        isPending={isPending}
+        pendingText="Resetting auction…"
+        onConfirm={handleConfirmReset}
+        onClose={() => setShowResetModal(false)}
+      />
+
+      {/* 5. UNDO CONFIRMATION MODAL (Approved Decision 1) */}
+      <ConfirmDialog
+        isOpen={showUndoModal}
+        eyebrow={`${settings.tournament_name ? settings.tournament_name.toUpperCase() + ' · ' : ''}UNDO ACTION`}
+        title="Undo last auction action?"
+        description={
+          <p>
+            Are you sure you want to undo the last recorded auction action?
+            {lastNonUndo?.type === 'sold'
+              ? ' This will reverse the recent sale and return the player to the block.'
+              : lastNonUndo?.type === 'unsold'
+              ? ' This will reverse the unsold status and return the player to the block.'
+              : hasLeader
+              ? ' This will reverse the most recent bid.'
+              : ' This will reverse the previous action.'}
+          </p>
+        }
+        confirmText="Confirm Undo"
+        cancelText="Cancel"
+        isPending={isPending}
+        pendingText="Undoing…"
+        onConfirm={handleConfirmUndo}
+        onClose={() => setShowUndoModal(false)}
+      />
+
+      {/* 6. UN-SELL SPECIFIC PLAYER MODAL */}
+      <ConfirmDialog
+        isOpen={!!unsellModal?.isOpen}
+        eyebrow={`${settings.tournament_name ? settings.tournament_name.toUpperCase() + ' · ' : ''}UN-SELL PLAYER`}
+        title={`Un-sell "${unsellModal?.playerName}"?`}
+        description={
+          <p>
+            This will remove <strong>{unsellModal?.playerName}</strong> from their team, refund the team&apos;s purse, and make the player available for auction again.
+          </p>
+        }
+        confirmText="Un-sell Player"
+        cancelText="Cancel"
+        isDanger={true}
+        isPending={isPending}
+        pendingText="Un-selling…"
+        onConfirm={handleConfirmUnsellPlayer}
+        onClose={() => setUnsellModal(null)}
+      />
     </>
   );
 }

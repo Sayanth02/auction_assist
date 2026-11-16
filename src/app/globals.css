@@ -7696,3 +7696,35 @@ textarea::placeholder {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════ */
+/* ── ACCESSIBILITY: HIGH-CONTRAST FOCUS & REDUCED MOTION          ── */
+/* ══════════════════════════════════════════════════════════════════ */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #efff00;
+  outline-offset: 2px;
+}
+
+.manage-form-card :focus-visible,
+.settings-app :focus-visible,
+.manage-toolbar :focus-visible,
+.pool-selector-card :focus-visible {
+  outline: 3px solid #183ec2;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .modal,
+  .toast,
+  .pool-player-card,
+  .team-card {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+

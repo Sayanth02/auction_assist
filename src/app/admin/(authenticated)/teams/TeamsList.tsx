@@ -6,6 +6,10 @@ import type { Team, Settings } from '@/lib/supabase/types';
 import type { TeamStatsSummary } from './page';
 import { getTeamInitials } from '@/lib/team-utils';
 import { resizeImageToWebP } from '@/lib/image-util';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Toast } from '@/components/ui/Toast';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ImageWithFallback } from '@/components/ui/ImageWithFallback';
 
 interface Props {
   teams: Team[];
@@ -19,24 +23,20 @@ interface ModalConfig {
   confirmText?: string;
   cancelText?: string;
   isDanger?: boolean;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 }
 
 export default function TeamsList({ teams, settings, teamStats }: Props) {
   const [editing, setEditing] = useState<Team | 'new' | null>(null);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<ModalConfig | null>(null);
+  const [modalPending, setModalPending] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; isError?: boolean } | null>(null);
-  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const formRef = useRef<HTMLDivElement | null>(null);
 
   function triggerToast(text: string, isError = false) {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMessage({ text, isError });
-    toastTimerRef.current = setTimeout(() => {
-      setToastMessage(null);
-    }, 3800);
   }
 
   function handleOpenAdd() {
@@ -53,7 +53,7 @@ export default function TeamsList({ teams, settings, teamStats }: Props) {
     }, 50);
   }
 
-  const tournamentName = settings?.tournament_name || 'VSL SEASON 04';
+  const tournamentName = settings?.tournament_name || '';
   const query = search.trim().toLowerCase();
   const filtered = teams.filter((t) => t.name.toLowerCase().includes(query));
 
@@ -63,7 +63,13 @@ export default function TeamsList({ teams, settings, teamStats }: Props) {
       <div className="manage-page-header">
         <div>
           <div className="eyebrow">
-            {tournamentName.toUpperCase()} <span style={{ opacity: 0.55 }}>/</span> CLUB MANAGEMENT
+            {tournamentName ? (
+              <>
+                {tournamentName.toUpperCase()}{' '}
+                <span style={{ opacity: 0.55 }}>/</span>{' '}
+              </>
+            ) : null}
+            CLUB MANAGEMENT
           </div>
           <h1 className="page-heading">
             The teams<span className="text-[var(--yellow)]">.</span>
@@ -184,15 +190,20 @@ export default function TeamsList({ teams, settings, teamStats }: Props) {
                     cancelText: 'Cancel',
                     isDanger: true,
                     onConfirm: async () => {
-                      setModal(null);
-                      const err = await deleteTeam(team.id);
-                      if (err) {
-                        triggerToast(err, true);
-                      } else {
-                        triggerToast(`"${team.name}" removed from tournament.`);
-                        if (editing && typeof editing === 'object' && editing.id === team.id) {
-                          setEditing(null);
+                      setModalPending(true);
+                      try {
+                        const err = await deleteTeam(team.id);
+                        if (err) {
+                          triggerToast(err, true);
+                        } else {
+                          triggerToast(`"${team.name}" removed from tournament.`);
+                          if (editing && typeof editing === 'object' && editing.id === team.id) {
+                            setEditing(null);
+                          }
+                          setModal(null);
                         }
+                      } finally {
+                        setModalPending(false);
                       }
                     },
                   });
@@ -222,23 +233,27 @@ export default function TeamsList({ teams, settings, teamStats }: Props) {
           )}
         </div>
       ) : (
-        <div className="manage-empty" id="manageEmpty">
-          <h3>No teams found.</h3>
-          <p>
-            {query
+        <EmptyState
+          title={query ? 'No matching clubs' : 'No clubs registered'}
+          description={
+            query
               ? `No registered clubs match "${search}". Try searching for another name.`
-              : 'There are no clubs registered yet. Start by adding your first team.'}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              if (query) setSearch('');
-              else handleOpenAdd();
-            }}
-          >
-            {query ? 'Clear search' : '+ Add your first team'}
-          </button>
-        </div>
+              : 'There are no clubs registered yet. Start by adding your first team.'
+          }
+          className="my-6"
+          action={
+            <button
+              type="button"
+              className="manage-add-primary"
+              onClick={() => {
+                if (query) setSearch('');
+                else handleOpenAdd();
+              }}
+            >
+              {query ? 'Clear search' : '+ Add your first team'}
+            </button>
+          }
+        />
       )}
 
       {/* ── Footer Note ── */}
@@ -251,56 +266,29 @@ export default function TeamsList({ teams, settings, teamStats }: Props) {
 
       {/* ── Neo-Brutalist Confirmation / Alert Modal ── */}
       {modal && (
-        <div
-          className="modal-backdrop"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setModal(null);
+        <ConfirmDialog
+          isOpen={true}
+          eyebrow={`${tournamentName ? tournamentName.toUpperCase() + ' · ' : ''}CLUB MANAGEMENT`}
+          title={modal.title}
+          description={modal.description}
+          confirmText={modal.confirmText || 'Confirm'}
+          cancelText={modal.cancelText || 'Cancel'}
+          isDanger={modal.isDanger}
+          isPending={modalPending}
+          pendingText="Processing…"
+          onConfirm={modal.onConfirm}
+          onClose={() => {
+            if (!modalPending) setModal(null);
           }}
-        >
-          <div className="modal" role="dialog" aria-modal="true">
-            <div className="modal-top">
-              <span className="modal-eyebrow">
-                {tournamentName.toUpperCase()} · CLUB MANAGEMENT
-              </span>
-              <button
-                type="button"
-                onClick={() => setModal(null)}
-                className="modal-close"
-                aria-label="Close dialog"
-              >
-                <IconClose />
-              </button>
-            </div>
-            <h2>{modal.title}</h2>
-            <p className="modal-desc">{modal.description}</p>
-            <div className="modal-actions">
-              {modal.cancelText && (
-                <button
-                  type="button"
-                  onClick={() => setModal(null)}
-                  className="modal-btn cancel"
-                >
-                  {modal.cancelText}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={modal.onConfirm}
-                className={`modal-btn confirm ${modal.isDanger ? '!bg-red-600 !text-white hover:!bg-red-700' : ''}`}
-              >
-                {modal.confirmText || 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
+        />
       )}
 
       {/* ── Toast Notification ── */}
-      {toastMessage && (
-        <div className={`toast show ${toastMessage.isError ? 'error' : ''}`} role="status">
-          {toastMessage.text}
-        </div>
-      )}
+      <Toast
+        message={toastMessage?.text ?? null}
+        isError={toastMessage?.isError}
+        onDismiss={() => setToastMessage(null)}
+      />
     </div>
   );
 }
@@ -430,6 +418,10 @@ function TeamFormPanel({
   const soldCount = stats?.soldCount ?? 0;
   const hasSoldPlayers = Boolean(team && soldCount > 0);
 
+  const [showPurseConfirm, setShowPurseConfirm] = useState(false);
+  const [isPurseConfirmed, setIsPurseConfirmed] = useState(false);
+  const formElementRef = useRef<HTMLFormElement | null>(null);
+
   const [serverError, formAction, pending] = useActionState(
     async (prev: string | null, formData: FormData) => {
       setClientError(null);
@@ -445,13 +437,6 @@ function TeamFormPanel({
 
       if (granularity > 0 && enteredPurse % granularity !== 0) {
         return `Purse ₹${enteredPurse.toLocaleString('en-IN')} must be a multiple of bid granularity (₹${granularity}).`;
-      }
-
-      if (hasSoldPlayers && team && enteredPurse !== team.purse_total) {
-        const confirmed = window.confirm(
-          `⚠️ Team "${team.name}" has already spent ₹${totalSpent.toLocaleString('en-IN')} on ${soldCount} player(s).\n\nAre you sure you want to change its total purse from ₹${team.purse_total.toLocaleString('en-IN')} to ₹${enteredPurse.toLocaleString('en-IN')}?`,
-        );
-        if (!confirmed) return null;
       }
 
       if (logoBlob) {
@@ -558,7 +543,18 @@ function TeamFormPanel({
         </div>
       )}
 
-      <form action={formAction} noValidate>
+      <form
+        ref={formElementRef}
+        action={formAction}
+        onSubmit={(e) => {
+          const entered = Number(purseValue);
+          if (hasSoldPlayers && team && entered !== team.purse_total && !isPurseConfirmed) {
+            e.preventDefault();
+            setShowPurseConfirm(true);
+          }
+        }}
+        noValidate
+      >
         {team && <input type="hidden" name="id" value={team.id} />}
 
         <div className="manage-form-grid">
@@ -596,7 +592,10 @@ function TeamFormPanel({
                 name="purse_total"
                 type="number"
                 value={purseValue}
-                onChange={(e) => setPurseValue(e.target.value)}
+                onChange={(e) => {
+                  setPurseValue(e.target.value);
+                  setIsPurseConfirmed(false);
+                }}
                 min={hasSoldPlayers ? totalSpent : 0}
                 step={granularity || 'any'}
                 required
@@ -626,8 +625,11 @@ function TeamFormPanel({
             <div className="manage-logo-picker">
               <div className="manage-crest" aria-label="Team logo preview">
                 {previewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={previewUrl} alt="Logo preview" />
+                  <ImageWithFallback
+                    src={previewUrl}
+                    alt="Logo preview"
+                    className="w-full h-full object-contain"
+                  />
                 ) : (
                   <>
                     <svg className="placeholder-shield" viewBox="0 0 72 80" aria-hidden="true">
@@ -734,6 +736,33 @@ function TeamFormPanel({
           </div>
         </div>
       </form>
+
+      {/* Confirmation modal for changing purse after players have been bought */}
+      <ConfirmDialog
+        isOpen={showPurseConfirm}
+        eyebrow="CONFIRM PURSE CHANGE"
+        title="Change Team Purse?"
+        description={
+          <div>
+            <p className="mb-2">
+              Team <strong>&quot;{team?.name}&quot;</strong> has already spent ₹{totalSpent.toLocaleString('en-IN')} on {soldCount} player(s).
+            </p>
+            <p>
+              Are you sure you want to change its total purse from <strong>₹{team?.purse_total.toLocaleString('en-IN')}</strong> to <strong>₹{Number(purseValue).toLocaleString('en-IN')}</strong>?
+            </p>
+          </div>
+        }
+        confirmText="Confirm Purse Change"
+        cancelText="Cancel"
+        onConfirm={() => {
+          setIsPurseConfirmed(true);
+          setShowPurseConfirm(false);
+          setTimeout(() => {
+            formElementRef.current?.requestSubmit();
+          }, 50);
+        }}
+        onClose={() => setShowPurseConfirm(false)}
+      />
     </>
   );
 }
@@ -751,8 +780,22 @@ function TeamCrest({
   return (
     <div className="manage-crest" aria-label={`${name} crest`}>
       {logoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={logoUrl} alt={`${name} crest`} />
+        <ImageWithFallback
+          src={logoUrl}
+          alt={`${name} crest`}
+          className="w-full h-full object-contain"
+          fallbackIcon={
+            <>
+              <svg className="placeholder-shield" viewBox="0 0 72 80" aria-hidden="true">
+                <path d="M5 4h62v37c0 17-11 28-31 36C16 69 5 58 5 41Z" fill="#0a174f" />
+                <path d="M10 9h52v32c0 14-9 24-26 31C19 65 10 55 10 41Z" fill="#1947f4" />
+                <path d="M10 47 48 9h14v17L20 68c-4-5-8-12-10-21Z" fill="#365eff" />
+                <path d="M16 57h40" stroke="#efff00" strokeWidth="3" />
+              </svg>
+              <span className="placeholder-initials">{initials}</span>
+            </>
+          }
+        />
       ) : (
         <>
           <svg className="placeholder-shield" viewBox="0 0 72 80" aria-hidden="true">

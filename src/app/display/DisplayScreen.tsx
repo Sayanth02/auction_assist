@@ -7,6 +7,7 @@ import { playBidSound } from '@/lib/sound';
 import { getInitials } from '@/lib/player-constants';
 import { getTeamPalette, getTeamInitials } from '@/lib/team-utils';
 import { SoldRevealOverlay, type SoldRevealData } from './SoldRevealOverlay';
+import { ImageWithFallback } from '@/components/ui/ImageWithFallback';
 
 interface DisplayProps {
   initialSettings: Settings;
@@ -35,6 +36,9 @@ export default function DisplayScreen({
   const [players, setPlayers] = useState<Player[]>(initialPlayers);
   const [recentSold, setRecentSold] = useState<(Player & { teamName?: string })[]>(initialRecentSold);
   const [activeReveal, setActiveReveal] = useState<SoldRevealData | null>(null);
+
+  // Connection & resync status (Decision 2)
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'reconnecting'>('connected');
 
   // View state: 'stage' (Cinematic Stage) or 'board' (Teams Board)
   const [view, setView] = useState<'stage' | 'board'>('stage');
@@ -228,6 +232,88 @@ export default function DisplayScreen({
     prevBidRef.current = auctionState.current_bid;
   }, [auctionState.current_bid, auctionState.status, soundEnabled]);
 
+  // Safe snapshot resynchronization on reconnect (avoids replaying past sales)
+  const resyncSnapshot = useCallback(async () => {
+    try {
+      const [
+        { data: sData },
+        { data: pData },
+        { data: tData },
+      ] = await Promise.all([
+        supabase.from('auction_state').select('*').single(),
+        supabase.from('players').select('*'),
+        supabase.from('teams').select('*').order('name'),
+      ]);
+
+      if (sData) {
+        setAuctionState(sData as AuctionState);
+        if (sData.current_player_id && pData) {
+          const cp = (pData as Player[]).find((p) => p.id === sData.current_player_id);
+          setCurrentPlayer(cp || null);
+        } else {
+          setCurrentPlayer(null);
+        }
+        if (sData.leading_team_id && tData) {
+          const lt = (tData as Team[]).find((t) => t.id === sData.leading_team_id);
+          setLeadingTeam(lt || null);
+        } else {
+          setLeadingTeam(null);
+        }
+      }
+      if (pData) {
+        setPlayers(pData as Player[]);
+        // Ensure all currently sold players are in handledSoldIdsRef so reconnect never replays old reveals
+        (pData as Player[]).forEach((p) => {
+          if (p.status === 'sold') {
+            handledSoldIdsRef.current.add(`sold:${p.id}:${p.sold_price || 0}`);
+          }
+        });
+      }
+      if (tData) {
+        setTeams(tData as Team[]);
+      }
+    } catch (e) {
+      console.error('Safe resync error:', e);
+    }
+  }, [supabase]);
+
+  const handleChannelStatus = useCallback(
+    (status: string) => {
+      if (status === 'SUBSCRIBED') {
+        setConnectionStatus((prev) => {
+          if (prev === 'reconnecting') {
+            resyncSnapshot();
+          }
+          return 'connected';
+        });
+      } else if (
+        status === 'CHANNEL_ERROR' ||
+        status === 'TIMED_OUT' ||
+        status === 'CLOSED'
+      ) {
+        setConnectionStatus('reconnecting');
+      }
+    },
+    [resyncSnapshot]
+  );
+
+  // Online / offline network event listeners
+  useEffect(() => {
+    const handleOnline = () => {
+      setConnectionStatus('connected');
+      resyncSnapshot();
+    };
+    const handleOffline = () => {
+      setConnectionStatus('reconnecting');
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [resyncSnapshot]);
+
   // Supabase Realtime Channels
   useEffect(() => {
     // 1. Listen for auction_state changes
@@ -270,7 +356,7 @@ export default function DisplayScreen({
           }
         }
       )
-      .subscribe();
+      .subscribe(handleChannelStatus);
 
     // 2. Listen for players changes (roster updates, and sold event fallback)
     const playersChannel = supabase
@@ -319,7 +405,7 @@ export default function DisplayScreen({
           }
         }
       )
-      .subscribe();
+      .subscribe(handleChannelStatus);
 
     // 3. Listen for bid_log entries (sole animation trigger for committed sales, plus undo handling)
     const logChannel = supabase
@@ -401,7 +487,7 @@ export default function DisplayScreen({
           }
         }
       )
-      .subscribe();
+      .subscribe(handleChannelStatus);
 
     // 4. Listen for teams changes
     const teamsChannel = supabase
@@ -414,7 +500,7 @@ export default function DisplayScreen({
           if (data) setTeams(data as Team[]);
         }
       )
-      .subscribe();
+      .subscribe(handleChannelStatus);
 
     // 5. Listen for settings changes
     const settingsChannel = supabase
@@ -426,7 +512,7 @@ export default function DisplayScreen({
           if (payload.new) setSettings(payload.new as Settings);
         }
       )
-      .subscribe();
+      .subscribe(handleChannelStatus);
 
     return () => {
       supabase.removeChannel(stateChannel);
@@ -435,7 +521,7 @@ export default function DisplayScreen({
       supabase.removeChannel(teamsChannel);
       supabase.removeChannel(settingsChannel);
     };
-  }, [supabase]);
+  }, [supabase, handleChannelStatus]);
 
   // Overall Tournament Summary Calculations
   const totalTeams = teams.length;
@@ -558,12 +644,11 @@ export default function DisplayScreen({
     <div className="display-app">
       {/* ── TOP BAR: Navigation, Views & Controls ── */}
       <header className="topbar">
-        <div className="brand" aria-label={settings.tournament_name || 'VSL'}>
+        <div className="brand" aria-label={settings.tournament_name || 'AUCTION ASSIST'}>
           {settings.logo_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <ImageWithFallback
               src={settings.logo_url}
-              alt={settings.tournament_name || 'VSL'}
+              alt={settings.tournament_name || 'AUCTION ASSIST'}
               className="brand-mark object-contain"
             />
           ) : (
@@ -584,13 +669,13 @@ export default function DisplayScreen({
                 fontWeight="900"
                 fontSize="12"
               >
-                VSL
+                {settings.tournament_name ? settings.tournament_name.slice(0, 3).toUpperCase() : 'AA'}
               </text>
             </svg>
           )}
           <div className="brand-copy">
-            <strong>{settings.tournament_name || 'VSL'}</strong>
-            <small>SEASON 04</small>
+            <strong>AUCTION ASSIST</strong>
+            {settings.tournament_name ? <small>{settings.tournament_name}</small> : null}
           </div>
         </div>
 
@@ -599,6 +684,16 @@ export default function DisplayScreen({
         </div>
 
         <div className="bar-actions">
+          {view === 'stage' && connectionStatus === 'reconnecting' && (
+            <span
+              role="status"
+              aria-live="polite"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-400/40 rounded-none animate-pulse"
+            >
+              <span className="w-2 h-2 rounded-full bg-amber-400" aria-hidden="true" />
+              Reconnecting…
+            </span>
+          )}
           <span className="preview-label">LIVE AUCTION</span>
 
           {/* Filter button: only visible in board view */}
@@ -724,16 +819,16 @@ export default function DisplayScreen({
                     id="photoFrame"
                   >
                     {currentPlayer?.photo_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <ImageWithFallback
                         id="playerPhoto"
                         src={currentPlayer.photo_url}
                         alt={currentPlayer.name}
+                        fallbackText={currentPlayer ? getInitials(currentPlayer.name) : 'AA'}
                       />
                     ) : (
                       <div className="photo-fallback">
                         <span>
-                          {currentPlayer ? getInitials(currentPlayer.name) : 'VSL'}
+                          {currentPlayer ? getInitials(currentPlayer.name) : 'AA'}
                         </span>
                         <div>
                           {currentPlayer
@@ -776,11 +871,11 @@ export default function DisplayScreen({
                     {leadingTeam ? (
                       <span className="inline-flex items-center gap-3">
                         {leadingTeam.logo_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
+                          <ImageWithFallback
                             src={leadingTeam.logo_url}
                             alt={leadingTeam.name}
                             className="w-8 h-8 object-contain rounded inline-block align-middle"
+                            fallbackText={getTeamInitials(leadingTeam.name)}
                           />
                         ) : (
                           <span

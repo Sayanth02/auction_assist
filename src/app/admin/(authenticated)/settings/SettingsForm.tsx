@@ -1,8 +1,12 @@
 'use client';
 
-import React, { useState, useRef, useTransition } from 'react';
+import React, { useState, useRef, useTransition, useEffect } from 'react';
 import { saveSettings } from '@/app/actions/settings';
 import type { Settings } from '@/lib/supabase/types';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Toast } from '@/components/ui/Toast';
+import { ImageWithFallback } from '@/components/ui/ImageWithFallback';
+import { useUnsavedChanges } from '@/context/UnsavedChangesContext';
 
 interface SettingsFormProps {
   settings: Settings | null;
@@ -27,7 +31,7 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
 
   const s = settings;
   const initialValues: FormSettingsState = {
-    tournamentName: s?.tournament_name ?? 'VSL SEASON 4',
+    tournamentName: s?.tournament_name ?? '',
     defaultPurse: s?.default_purse ?? 10000,
     defaultBase: s?.default_base_price ?? 100,
     minSquad: s?.min_squad ?? 6,
@@ -66,16 +70,13 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
 
   // Toast notification
   const [toast, setToast] = useState<{ message: string; isError?: boolean } | null>(null);
-  const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const { setIsDirty: setGlobalDirty } = useUnsavedChanges();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   function showToast(message: string, isError = false) {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast({ message, isError });
-    toastTimerRef.current = setTimeout(() => {
-      setToast(null);
-    }, 4000);
   }
 
   // Dirty detection
@@ -92,6 +93,39 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
     allowBasePriceBid !== saved.allowBase ||
     previewUrl !== saved.logo ||
     isRemoved;
+
+  // Sync isDirty with layout context so top nav and sign-out are guarded
+  useEffect(() => {
+    setGlobalDirty(isDirty);
+    return () => setGlobalDirty(false);
+  }, [isDirty, setGlobalDirty]);
+
+  // Protect unsaved changes on browser close / reload (Decision 3)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
+
+  // Intercept browser back/forward buttons when form is dirty
+  useEffect(() => {
+    if (!isDirty) return;
+
+    window.history.pushState(null, '', window.location.href);
+
+    const handlePopState = () => {
+      window.history.pushState(null, '', window.location.href);
+      setShowDiscardConfirm(true);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isDirty]);
 
   // Currency helper
   const displayMoney = (val: number | string) => {
@@ -315,11 +349,11 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
                 <div className="logo-row">
                   <div className="logo-thumb">
                     {previewUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <ImageWithFallback
                         id="logoPreview"
                         src={previewUrl}
                         alt="Tournament logo preview"
+                        className="w-full h-full object-contain"
                       />
                     ) : (
                       <span className="logo-empty" id="logoEmpty">
@@ -714,7 +748,7 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
                 className="discard-btn"
                 id="discardChanges"
                 type="button"
-                onClick={handleDiscard}
+                onClick={() => setShowDiscardConfirm(true)}
                 disabled={!isDirty || isPending}
               >
                 Discard changes
@@ -752,11 +786,11 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
               <div className="summary-identity">
                 <div className="summary-logo">
                   {previewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <ImageWithFallback
                       id="summaryLogo"
                       src={previewUrl}
                       alt="Tournament logo"
+                      className="w-full h-full object-contain"
                     />
                   ) : (
                     <span className="logo-empty" id="summaryLogoEmpty">
@@ -835,19 +869,33 @@ export default function SettingsForm({ settings }: SettingsFormProps) {
       {/* FOOTER */}
       <footer className="footer settings-footer">
         <div>
-          <strong>{tournamentName.trim() || 'VSL'}</strong> / CONTROL CENTRE
+          <strong>{tournamentName.trim() || 'AUCTION ASSIST'}</strong> / CONTROL CENTRE
         </div>
         <div className="footer-note">AUCTION SETTINGS &amp; DEFAULTS</div>
       </footer>
 
+      {/* CONFIRM DISCARD MODAL */}
+      <ConfirmDialog
+        isOpen={showDiscardConfirm}
+        eyebrow="SETTINGS"
+        title="Discard unsaved changes?"
+        description="All changes made to tournament settings, purse defaults, and squad rules will be reverted to their last saved state."
+        confirmText="Discard Changes"
+        cancelText="Keep Editing"
+        isDanger={true}
+        onConfirm={() => {
+          handleDiscard();
+          setShowDiscardConfirm(false);
+        }}
+        onClose={() => setShowDiscardConfirm(false)}
+      />
+
       {/* TOAST NOTIFICATION */}
-      <div
-        className={`vsl-toast ${toast ? 'show' : ''} ${toast?.isError ? 'error' : ''}`}
-        role="status"
-        aria-live="polite"
-      >
-        {toast?.message}
-      </div>
+      <Toast
+        message={toast?.message ?? null}
+        isError={toast?.isError}
+        onDismiss={() => setToast(null)}
+      />
     </>
   );
 }
