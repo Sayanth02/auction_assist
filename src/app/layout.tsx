@@ -25,8 +25,18 @@ const barlowCondensed = Barlow_Condensed({
 });
 
 export const metadata: Metadata = {
-  title: "Auction Admin",
+  title: "Auction Assist",
   description: "Football player auction management",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/branding/auction-assist/favicon-32x32.png", type: "image/png", sizes: "32x32" },
+      { url: "/branding/auction-assist/favicon-16x16.png", type: "image/png", sizes: "16x16" },
+    ],
+    apple: [
+      { url: "/branding/auction-assist/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+  },
 };
 
 export default function RootLayout({

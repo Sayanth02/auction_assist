@@ -48,26 +48,14 @@ export default function LoginPage() {
     <div className="login-app app">
       <header className="topbar">
         <div className="brand" aria-label="Auction Assist">
-          <svg viewBox="0 0 48 54" aria-hidden="true">
-            <path
-              d="M4 4h40v25c0 10-7 17-20 22C11 46 4 39 4 29Z"
-              fill="none"
-              stroke="#efff00"
-              strokeWidth="3.5"
-            />
-            <path d="M12 35h24" stroke="#efff00" strokeWidth="1.8" />
-            <text
-              x="24"
-              y="27"
-              fill="#efff00"
-              textAnchor="middle"
-              fontFamily="Arial,sans-serif"
-              fontWeight="900"
-              fontSize="14"
-            >
-              AA
-            </text>
-          </svg>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/branding/auction-assist/icon-512.png"
+            alt="Auction Assist"
+            className="brand-logo"
+            width={44}
+            height={44}
+          />
           <div>
             <strong className="brand-name">AUCTION ASSIST</strong>
             <small className="brand-meta">Player auction platform</small>
