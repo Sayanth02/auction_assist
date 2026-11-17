@@ -35,7 +35,12 @@ export async function upsertPlayer(
   _prev: string | null,
   formData: FormData,
 ): Promise<string | null> {
-  const supabase = await requireAdmin().catch((e) => { throw e; });
+  let supabase;
+  try {
+    supabase = await requireAdmin();
+  } catch (err: unknown) {
+    return err instanceof Error ? err.message : 'Unauthorized';
+  }
 
   const id           = (formData.get('id') as string | null) || undefined;
   const name         = ((formData.get('name') as string) || '').trim();
@@ -164,23 +169,49 @@ export async function upsertPlayer(
 }
 
 export async function deletePlayer(playerId: string): Promise<string | null> {
-  const supabase = await requireAdmin().catch((e) => { throw e; });
+  let supabase;
+  try {
+    supabase = await requireAdmin();
+  } catch (err: unknown) {
+    return err instanceof Error ? err.message : 'Unauthorized';
+  }
 
-  // 1. Fetch player's photo_url to clean up from storage
-  const { data: player } = await supabase
+  // 1. Fetch player and verify existence and status
+  const { data: player, error: fetchErr } = await supabase
     .from('players')
-    .select('photo_url')
+    .select('id, name, status, photo_url')
     .eq('id', playerId)
     .single();
 
-  if (player?.photo_url) {
+  if (fetchErr || !player) {
+    return 'Player not found.';
+  }
+
+  // 2. Reject deletion if player is currently in an active auction
+  const { data: auctionState } = await supabase
+    .from('auction_state')
+    .select('current_player_id, status')
+    .eq('id', 1)
+    .single();
+
+  if (auctionState?.current_player_id === playerId) {
+    return `Cannot delete player "${player.name}" while they are currently on the auction block.`;
+  }
+
+  // 3. Reject deletion if player is already sold
+  if (player.status === 'sold') {
+    return `Cannot delete player "${player.name}" because they have already been sold. Please unsell the player before deleting.`;
+  }
+
+  // 4. Clean up player's photo_url from storage if present
+  if (player.photo_url) {
     const oldPath = getStoragePath(player.photo_url, 'branding');
     if (oldPath) {
       await supabase.storage.from('branding').remove([oldPath]);
     }
   }
 
-  // 2. Delete player record
+  // 5. Delete player record
   const { error } = await supabase.from('players').delete().eq('id', playerId);
   if (error) return error.message;
 
@@ -194,7 +225,12 @@ export async function deletePlayer(playerId: string): Promise<string | null> {
 export async function importPlayersCsv(
   csvContent: string
 ): Promise<{ successCount: number; errors: string[] }> {
-  const supabase = await requireAdmin().catch((e) => { throw e; });
+  let supabase;
+  try {
+    supabase = await requireAdmin();
+  } catch (err: unknown) {
+    return { successCount: 0, errors: [err instanceof Error ? err.message : 'Unauthorized'] };
+  }
 
   const { data: settings } = await supabase
     .from('settings')

@@ -69,14 +69,6 @@ export function normalizeCategory(value: string | null | undefined): string | nu
   return match ?? null;
 }
 
-export function isValidPosition(code: string | null | undefined): boolean {
-  return normalizePositionCode(code) !== null;
-}
-
-export function isValidCategory(cat: string | null | undefined): boolean {
-  return normalizeCategory(cat) !== null;
-}
-
 export function getInitials(name: string): string {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);

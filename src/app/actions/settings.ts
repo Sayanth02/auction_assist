@@ -112,10 +112,22 @@ export async function saveSettings(
     } else {
       const rulesRaw = ((formData.get('increment_rules') as string) || '').trim();
       if (rulesRaw.startsWith('[')) {
-        increment_rules = JSON.parse(rulesRaw);
-        if (!Array.isArray(increment_rules) || increment_rules.length === 0) {
+        const parsed = JSON.parse(rulesRaw);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
           throw new Error('At least one increment rule is required.');
         }
+        for (const r of parsed) {
+          if (typeof r !== 'object' || r === null) {
+            throw new Error('Each increment rule must be an object.');
+          }
+          if (r.upTo !== null && (typeof r.upTo !== 'number' || isNaN(r.upTo) || r.upTo <= 0)) {
+            throw new Error('Rule upTo must be null or a positive number.');
+          }
+          if (typeof r.step !== 'number' || isNaN(r.step) || r.step <= 0) {
+            throw new Error('Rule step must be a positive number.');
+          }
+        }
+        increment_rules = parsed as IncrementRule[];
       } else {
         increment_rules = [{ upTo: null, step: 1 }];
       }
@@ -135,8 +147,11 @@ export async function saveSettings(
     allow_base_price_bid_raw === 'true' ||
     allow_base_price_bid_raw === '1';
 
+  const rawTournamentName = formData.get('tournament_name');
+  const tournament_name = typeof rawTournamentName === 'string' ? rawTournamentName.trim() : '';
+
   const payload = {
-    tournament_name:      (formData.get('tournament_name') as string).trim(),
+    tournament_name,
     logo_url:             newLogoUrl,
     theme_color,
     default_purse:        Number(formData.get('default_purse')),

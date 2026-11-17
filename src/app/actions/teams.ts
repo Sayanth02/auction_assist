@@ -28,7 +28,12 @@ export async function upsertTeam(
   _prev: string | null,
   formData: FormData,
 ): Promise<string | null> {
-  const supabase = await requireAdmin().catch((e) => { throw e; });
+  let supabase;
+  try {
+    supabase = await requireAdmin();
+  } catch (err: unknown) {
+    return err instanceof Error ? err.message : 'Unauthorized';
+  }
 
   const id          = (formData.get('id') as string | null) || undefined;
   const name        = ((formData.get('name') as string) || '').trim();
@@ -149,9 +154,25 @@ export async function upsertTeam(
 }
 
 export async function deleteTeam(teamId: string): Promise<string | null> {
-  const supabase = await requireAdmin().catch((e) => { throw e; });
+  let supabase;
+  try {
+    supabase = await requireAdmin();
+  } catch (err: unknown) {
+    return err instanceof Error ? err.message : 'Unauthorized';
+  }
 
-  // 1. Block deleting a team that has players assigned
+  // 1. Block deleting a team that is currently the leading bidder in an auction
+  const { data: auctionState } = await supabase
+    .from('auction_state')
+    .select('leading_team_id, status')
+    .eq('id', 1)
+    .single();
+
+  if (auctionState?.leading_team_id === teamId) {
+    return 'Cannot delete team while it is the leading bidder in an active auction.';
+  }
+
+  // 2. Block deleting a team that has players assigned
   const { count } = await supabase
     .from('players')
     .select('id', { count: 'exact', head: true })
@@ -161,7 +182,7 @@ export async function deleteTeam(teamId: string): Promise<string | null> {
     return `Cannot delete team because it has ${count} player(s) assigned. Reassign or remove the players first.`;
   }
 
-  // 2. Fetch team's logo_url to clean up from storage
+  // 3. Fetch team's logo_url to clean up from storage
   const { data: team } = await supabase
     .from('teams')
     .select('logo_url')
@@ -175,7 +196,7 @@ export async function deleteTeam(teamId: string): Promise<string | null> {
     }
   }
 
-  // 3. Delete team record
+  // 4. Delete team record
   const { error } = await supabase.from('teams').delete().eq('id', teamId);
   if (error) return error.message;
 

@@ -196,9 +196,12 @@ export const SoldRevealOverlay: React.FC<SoldRevealOverlayProps> = ({
           ref={videoRef}
           className={`reveal-background-video ${videoPlaying ? 'is-visible' : ''}`}
           muted
+          autoPlay
           playsInline
           preload="auto"
           tabIndex={-1}
+          onPlay={() => setVideoPlaying(true)}
+          onPlaying={() => setVideoPlaying(true)}
           onEnded={() => {
             // Keep the last frame held steadily
             if (videoRef.current) videoRef.current.pause();

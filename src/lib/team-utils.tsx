@@ -4,7 +4,6 @@
  * Helpers and components for team logo rendering, color generation, and initials.
  */
 
-import React from 'react';
 import { getInitials } from '@/lib/player-constants';
 
 export interface TeamPalette {
@@ -41,43 +40,5 @@ export function getTeamPalette(name: string): TeamPalette {
 
 export function getTeamInitials(name: string): string {
   return getInitials(name);
-}
-
-export function TeamAvatar({
-  logoUrl,
-  name,
-  className = '',
-  sizeClassName = 'w-12 h-12 text-sm',
-  imgClassName = '',
-}: {
-  logoUrl?: string | null;
-  name: string;
-  className?: string;
-  sizeClassName?: string;
-  imgClassName?: string;
-}) {
-  const palette = getTeamPalette(name);
-  const initials = getTeamInitials(name);
-
-  if (logoUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={logoUrl}
-        alt={name}
-        className={`${sizeClassName} object-contain rounded-xl bg-slate-950 p-1 border border-slate-800 shrink-0 ${imgClassName} ${className}`}
-      />
-    );
-  }
-
-  return (
-    <div
-      className={`${sizeClassName} rounded-full flex items-center justify-center font-black ${palette.bg} ${palette.text} shadow-sm shrink-0 border border-white/20 select-none ${className}`}
-      style={{ backgroundColor: palette.hex }}
-      title={name}
-    >
-      <span>{initials}</span>
-    </div>
-  );
 }
 

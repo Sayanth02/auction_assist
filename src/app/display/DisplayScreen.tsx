@@ -87,8 +87,10 @@ export default function DisplayScreen({
   const advanceRevealQueue = useCallback(() => {
     if (revealQueueRef.current.length > 0) {
       const next = revealQueueRef.current.shift()!;
+      activeRevealRef.current = next;
       setActiveReveal(next);
     } else {
+      activeRevealRef.current = null;
       setActiveReveal(null);
     }
   }, []);
@@ -106,6 +108,7 @@ export default function DisplayScreen({
     if (activeRevealRef.current) {
       revealQueueRef.current.push(revealData);
     } else {
+      activeRevealRef.current = revealData;
       setActiveReveal(revealData);
     }
   }, []);
@@ -262,12 +265,6 @@ export default function DisplayScreen({
       }
       if (pData) {
         setPlayers(pData as Player[]);
-        // Ensure all currently sold players are in handledSoldIdsRef so reconnect never replays old reveals
-        (pData as Player[]).forEach((p) => {
-          if (p.status === 'sold') {
-            handledSoldIdsRef.current.add(`sold:${p.id}:${p.sold_price || 0}`);
-          }
-        });
       }
       if (tData) {
         setTeams(tData as Team[]);
@@ -278,7 +275,10 @@ export default function DisplayScreen({
   }, [supabase]);
 
   const handleChannelStatus = useCallback(
-    (status: string) => {
+    (status: string, channelName?: string) => {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Realtime: ${channelName || 'channel'}] Status: ${status}`);
+      }
       if (status === 'SUBSCRIBED') {
         setConnectionStatus((prev) => {
           if (prev === 'reconnecting') {
@@ -314,7 +314,7 @@ export default function DisplayScreen({
     };
   }, [resyncSnapshot]);
 
-  // Supabase Realtime Channels
+  // Supabase Realtime Channels (Dedicated per table to ensure 100% reliable Phoenix bindings)
   useEffect(() => {
     // 1. Listen for auction_state changes
     const stateChannel = supabase
@@ -356,7 +356,7 @@ export default function DisplayScreen({
           }
         }
       )
-      .subscribe(handleChannelStatus);
+      .subscribe((status) => handleChannelStatus(status, 'auction_state'));
 
     // 2. Listen for players changes (roster updates, and sold event fallback)
     const playersChannel = supabase
@@ -382,6 +382,10 @@ export default function DisplayScreen({
             // Deduplicate across channels using saleKey
             const saleKey = `sold:${updatedPlayer.id}:${updatedPlayer.sold_price || 0}`;
             if (!handledSoldIdsRef.current.has(saleKey)) {
+              if (handledSoldIdsRef.current.size > 120) {
+                const keys = Array.from(handledSoldIdsRef.current);
+                handledSoldIdsRef.current = new Set(keys.slice(keys.length - 40));
+              }
               handledSoldIdsRef.current.add(saleKey);
 
               const revealItem: SoldRevealData = {
@@ -405,7 +409,7 @@ export default function DisplayScreen({
           }
         }
       )
-      .subscribe(handleChannelStatus);
+      .subscribe((status) => handleChannelStatus(status, 'players'));
 
     // 3. Listen for bid_log entries (sole animation trigger for committed sales, plus undo handling)
     const logChannel = supabase
@@ -423,6 +427,10 @@ export default function DisplayScreen({
               handledSoldIdsRef.current.has(saleKey)
             ) {
               return;
+            }
+            if (handledSoldIdsRef.current.size > 120) {
+              const keys = Array.from(handledSoldIdsRef.current);
+              handledSoldIdsRef.current = new Set(keys.slice(keys.length - 40));
             }
             handledSoldIdsRef.current.add(newEntry.id);
             handledSoldIdsRef.current.add(saleKey);
@@ -487,7 +495,7 @@ export default function DisplayScreen({
           }
         }
       )
-      .subscribe(handleChannelStatus);
+      .subscribe((status) => handleChannelStatus(status, 'bid_log'));
 
     // 4. Listen for teams changes
     const teamsChannel = supabase
@@ -500,7 +508,7 @@ export default function DisplayScreen({
           if (data) setTeams(data as Team[]);
         }
       )
-      .subscribe(handleChannelStatus);
+      .subscribe((status) => handleChannelStatus(status, 'teams'));
 
     // 5. Listen for settings changes
     const settingsChannel = supabase
@@ -512,7 +520,7 @@ export default function DisplayScreen({
           if (payload.new) setSettings(payload.new as Settings);
         }
       )
-      .subscribe(handleChannelStatus);
+      .subscribe((status) => handleChannelStatus(status, 'settings'));
 
     return () => {
       supabase.removeChannel(stateChannel);
@@ -1161,6 +1169,7 @@ export default function DisplayScreen({
       {/* ── CELEBRATORY SIGNING REVEAL OVERLAY ── */}
       {activeReveal && (
         <SoldRevealOverlay
+          key={activeReveal.eventId || `${activeReveal.playerId}-${activeReveal.price}`}
           data={activeReveal}
           soundEnabled={soundEnabled}
           onToggleSound={() => setSoundEnabled((prev) => !prev)}

@@ -119,6 +119,10 @@ export default function AuctionConsole({
 
   // Track per-team custom jump input values: { [teamId]: string }
   const [teamCustomInputs, setTeamCustomInputs] = useState<Record<string, string>>({});
+  const teamCustomInputsRef = useRef(teamCustomInputs);
+  useEffect(() => {
+    teamCustomInputsRef.current = teamCustomInputs;
+  }, [teamCustomInputs]);
   const [prevBidKey, setPrevBidKey] = useState(
     `${nextMinBid}-${auctionState.current_bid}-${auctionState.current_player_id}`
   );
@@ -222,7 +226,7 @@ export default function AuctionConsole({
         'postgres_changes',
         { event: '*', schema: 'public', table: 'auction_state' },
         () => {
-          const hasActiveCustomInputs = Object.values(teamCustomInputs).some((v) => v.trim() !== '');
+          const hasActiveCustomInputs = Object.values(teamCustomInputsRef.current).some((v) => v.trim() !== '');
           if (!hasActiveCustomInputs && !isSubmittingRef.current) {
             router.refresh();
           }
@@ -233,7 +237,7 @@ export default function AuctionConsole({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [router, teamCustomInputs]);
+  }, [router]);
 
   /* ── Pick / Randomise player ── */
   function handlePickPlayer(playerId: string) {
@@ -665,8 +669,8 @@ export default function AuctionConsole({
                 poolTab === 'unsold'
                   ? 'No players are currently marked as unsold.'
                   : unsoldList.length > 0
-                  ? 'All initial players have been auctioned! Switch to the Unsold tab above to start Round 2.'
-                  : 'All players have been auctioned! Review club rosters and the activity log below.'
+                    ? 'All initial players have been auctioned! Switch to the Unsold tab above to start Round 2.'
+                    : 'All players have been auctioned! Review club rosters and the activity log below.'
               }
               className="my-4"
             />
@@ -804,10 +808,10 @@ export default function AuctionConsole({
                       {isLeader
                         ? 'LEADING'
                         : !isBidding
-                        ? 'CLOSED'
-                        : team.max_bid >= (nextMinBid ?? 0)
-                        ? 'READY'
-                        : 'PURSE EXCEEDED'}
+                          ? 'CLOSED'
+                          : team.max_bid >= (nextMinBid ?? 0)
+                            ? 'READY'
+                            : 'PURSE EXCEEDED'}
                     </span>
                   </span>
 
@@ -844,76 +848,76 @@ export default function AuctionConsole({
                     </span>
                   </span>
 
-                <span className="club-metrics">
-                  <span className="club-metric">
-                    <span className="metric-label">AVAILABLE PURSE</span>
-                    <span className="metric-value">
-                      ₹{team.purse_remaining.toLocaleString('en-IN')}
+                  <span className="club-metrics">
+                    <span className="club-metric">
+                      <span className="metric-label">AVAILABLE PURSE</span>
+                      <span className="metric-value">
+                        ₹{team.purse_remaining.toLocaleString('en-IN')}
+                      </span>
+                    </span>
+                    <span className="club-metric">
+                      <span className="metric-label">MAX ALLOWED</span>
+                      <span className="metric-value">
+                        ₹{team.max_bid.toLocaleString('en-IN')}
+                      </span>
                     </span>
                   </span>
-                  <span className="club-metric">
-                    <span className="metric-label">MAX ALLOWED</span>
-                    <span className="metric-value">
-                      ₹{team.max_bid.toLocaleString('en-IN')}
+
+                  <span className="bid-cue">
+                    <span className="cue-label">
+                      {isLeader
+                        ? 'CURRENT LEADER'
+                        : isBidding
+                          ? 'SELECT TO BID'
+                          : 'BIDDING CLOSED'}
                     </span>
+                    <strong className="cue-price">
+                      {isBidding && nextMinBid !== null
+                        ? `₹${nextMinBid.toLocaleString('en-IN')}`
+                        : '—'}
+                    </strong>
+                    <svg className="icon" aria-hidden="true">
+                      <use href="#i-arrow" />
+                    </svg>
                   </span>
-                </span>
-
-                <span className="bid-cue">
-                  <span className="cue-label">
-                    {isLeader
-                      ? 'CURRENT LEADER'
-                      : isBidding
-                        ? 'SELECT TO BID'
-                        : 'BIDDING CLOSED'}
-                  </span>
-                  <strong className="cue-price">
-                    {isBidding && nextMinBid !== null
-                      ? `₹${nextMinBid.toLocaleString('en-IN')}`
-                      : '—'}
-                  </strong>
-                  <svg className="icon" aria-hidden="true">
-                    <use href="#i-arrow" />
-                  </svg>
-                </span>
-              </button>
-
-              {/* Custom Jump Bid Row */}
-              <div className="jump-row">
-                <label className="jump-input">
-                  <span className="sr-only">Custom jump bid for {team.name}</span>
-                  <span aria-hidden="true">₹</span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min={nextMinBid ?? 0}
-                    step={settings.bid_granularity}
-                    placeholder={nextMinBid !== null ? String(nextMinBid + settings.bid_granularity) : ''}
-                    value={customVal}
-                    onChange={(e) => setCustomInputForTeam(team.id, e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (isCustomValid) openCustomConfirm(team, customVal);
-                      }
-                    }}
-                    disabled={!isBidding || isPending}
-                    aria-label={`Custom jump bid for ${team.name}`}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="jump-btn"
-                  disabled={!isCustomValid}
-                  onClick={() => openCustomConfirm(team, customVal)}
-                  aria-label={`Place custom jump bid for ${team.name}`}
-                >
-                  JUMP ↗
                 </button>
-              </div>
-            </article>
-          );
-        }))}
+
+                {/* Custom Jump Bid Row */}
+                <div className="jump-row">
+                  <label className="jump-input">
+                    <span className="sr-only">Custom jump bid for {team.name}</span>
+                    <span aria-hidden="true">₹</span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={nextMinBid ?? 0}
+                      step={settings.bid_granularity}
+                      placeholder={nextMinBid !== null ? String(nextMinBid + settings.bid_granularity) : ''}
+                      value={customVal}
+                      onChange={(e) => setCustomInputForTeam(team.id, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (isCustomValid) openCustomConfirm(team, customVal);
+                        }
+                      }}
+                      disabled={!isBidding || isPending}
+                      aria-label={`Custom jump bid for ${team.name}`}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="jump-btn"
+                    disabled={!isCustomValid}
+                    onClick={() => openCustomConfirm(team, customVal)}
+                    aria-label={`Place custom jump bid for ${team.name}`}
+                  >
+                    JUMP ↗
+                  </button>
+                </div>
+              </article>
+            );
+          }))}
 
         {/* Verdict / Control Card */}
         <aside className="verdict-card" aria-label="Auction controls">
@@ -1199,10 +1203,10 @@ export default function AuctionConsole({
             {lastNonUndo?.type === 'sold'
               ? ' This will reverse the recent sale and return the player to the block.'
               : lastNonUndo?.type === 'unsold'
-              ? ' This will reverse the unsold status and return the player to the block.'
-              : hasLeader
-              ? ' This will reverse the most recent bid.'
-              : ' This will reverse the previous action.'}
+                ? ' This will reverse the unsold status and return the player to the block.'
+                : hasLeader
+                  ? ' This will reverse the most recent bid.'
+                  : ' This will reverse the previous action.'}
           </p>
         }
         confirmText="Confirm Undo"
